@@ -351,12 +351,12 @@ void Application::Start() {
     }
     codec->Start();
 
-    // 性能优化：音频任务固定绑定到Core 1，使用最高优先级
+    // 性能优化：音频任务使用最高优先级，绑定到Core 0（ESP32-C3单核）
     xTaskCreatePinnedToCore([](void* arg) {
         Application* app = (Application*)arg;
         app->AudioLoop();
         vTaskDelete(NULL);
-    }, "audio_loop", 4096 * 2, this, 9, &audio_loop_task_handle_, 1);  // 优先级9，绑定Core 1
+    }, "audio_loop", 4096 * 2, this, 9, &audio_loop_task_handle_, 0);  // 优先级9，绑定Core 0
 
     /* Start the main loop */
     xTaskCreatePinnedToCore([](void* arg) {

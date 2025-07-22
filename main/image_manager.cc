@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <wifi_station.h>
 #include "board.h"
+#include "audio_codecs/audio_codec.h"
 #include "system_info.h"  // 新增：包含系统信息头文件
 #include <esp_app_format.h>  // 新增：包含应用描述头文件
 #include <esp_ota_ops.h>      // 新增：包含OTA操作头文件

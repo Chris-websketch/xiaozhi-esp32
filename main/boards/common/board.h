@@ -12,6 +12,7 @@
 void* create_board();
 class AudioCodec;
 class Display;
+class Led;
 class Board {
 private:
     Board(const Board&) = delete; // 禁用拷贝构造函数
@@ -36,6 +37,7 @@ public:
     virtual std::string GetUuid() { return uuid_; }
     virtual Backlight* GetBacklight() { return nullptr; }
     virtual AudioCodec* GetAudioCodec() = 0;
+    virtual Led* GetLed() { return nullptr; }
     virtual Display* GetDisplay();
     virtual Http* CreateHttp() = 0;
     virtual WebSocket* CreateWebSocket() = 0;
