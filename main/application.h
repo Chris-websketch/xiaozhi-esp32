@@ -83,10 +83,16 @@ public:
     // 图片下载模式控制方法
     void PauseAudioProcessing();  // 暂停音频处理
     void ResumeAudioProcessing(); // 恢复音频处理
-    
+
     // 检查音频队列是否为空（用于判断开机提示音是否播放完成）
     bool IsAudioQueueEmpty() const;
-    
+
+    // 闹钟预处理：停止音频录制并丢弃已收集的音频数据
+    void DiscardPendingAudioForAlarm();
+
+    // 发送闹钟消息的辅助函数
+    void SendAlarmMessage();
+
     // **新增：强力音频保护机制**
     bool IsAudioActivityHigh() const;
     bool IsAudioProcessingCritical() const;
@@ -108,6 +114,9 @@ public:
     AlarmManager* alarm_m_ = nullptr;
     std::list<std::vector<uint8_t>> audio_decode_queue_;
     std::unique_ptr<Protocol> protocol_;
+
+    // 闹钟预处理标志位 - 避免重复处理即将触发的闹钟
+    bool alarm_pre_processing_active_ = false;
 #endif
 private:
     Application();

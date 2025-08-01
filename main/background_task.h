@@ -15,9 +15,10 @@ public:
 
     void Schedule(std::function<void()> callback);
     void WaitForCompletion();
+    void ClearQueue();  // 清空待处理任务队列
 #if CONFIG_USE_ALARM
     int GetTaskNum(){return active_tasks_;}
-#endif 
+#endif
 private:
     std::mutex mutex_;
     std::list<std::function<void()>> main_tasks_;

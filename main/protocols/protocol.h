@@ -55,6 +55,9 @@ public:
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendIotDescriptors(const std::string& descriptors);
     virtual void SendIotStates(const std::string& states);
+
+    // 检查是否有错误发生（避免重复调用IsTimeout()）
+    bool HasError() const { return error_occurred_; }
     virtual bool SendText(const std::string& text) = 0;
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

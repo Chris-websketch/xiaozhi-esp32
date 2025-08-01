@@ -37,6 +37,11 @@ Application::Application() {
     event_group_ = xEventGroupCreate();
     background_task_ = new BackgroundTask(4096 * 8);
 
+#if CONFIG_USE_ALARM
+    // 初始化闹钟预处理标志
+    alarm_pre_processing_active_ = false;
+#endif
+
     esp_timer_create_args_t clock_timer_args = {
         .callback = [](void* arg) {
             Application* app = (Application*)arg;
@@ -635,8 +640,58 @@ void Application::AudioLoop() {
         }
 #if CONFIG_USE_ALARM
         if(alarm_m_ != nullptr){
-                // 闹钟来了
+            // 检查是否有闹钟即将在3秒内触发，如果设备在聆听或说话状态则提前转为待命状态
+            if(!alarm_pre_processing_active_ &&
+               (device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking)){
+                time_t now = time(NULL);
+                Alarm* next_alarm = alarm_m_->GetProximateAlarm(now);
+                if(next_alarm != nullptr){
+                    int seconds_to_alarm = (int)(next_alarm->time - now);
+                    if(seconds_to_alarm > 0 && seconds_to_alarm <= 3){
+                        const char* state_name = (device_state_ == kDeviceStateListening) ? "聆听" : "说话";
+                        ESP_LOGI(TAG, "闹钟 '%s' 将在 %d 秒内触发，从%s状态切换到待命状态",
+                                 next_alarm->name.c_str(), seconds_to_alarm, state_name);
+
+                        // 设置预处理标志，避免重复处理
+                        alarm_pre_processing_active_ = true;
+
+                        // 根据当前状态采用不同的预处理策略
+                        if(device_state_ == kDeviceStateSpeaking){
+                            ESP_LOGI(TAG, "开始闹钟预处理：中断TTS播放");
+
+                            // 说话状态：立即中断TTS播放
+                            Schedule([this]() {
+                                AbortSpeaking(kAbortReasonNone);
+                                ESP_LOGI(TAG, "TTS已中断，等待闹钟触发");
+                            });
+
+                        } else {
+                            ESP_LOGI(TAG, "开始闹钟预处理：停止音频录制");
+
+                            // 聆听状态：丢弃待处理的音频数据，然后关闭音频通道，切换到待命状态
+                            Schedule([this]() {
+                                // 先丢弃所有待处理的音频数据
+                                DiscardPendingAudioForAlarm();
+
+                                // 然后关闭音频通道
+                                if(protocol_->IsAudioChannelOpened()){
+                                    protocol_->CloseAudioChannel();
+                                }
+
+                                // 最后切换到待命状态
+                                SetDeviceState(kDeviceStateIdle);
+                                ESP_LOGI(TAG, "为即将触发的闹钟准备：音频数据已丢弃，设备已切换到待命状态");
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 闹钟来了
             if(alarm_m_->IsRing()){
+                // 重置预处理标志
+                alarm_pre_processing_active_ = false;
+
                 if(device_state_ != kDeviceStateListening){
                     if (device_state_ == kDeviceStateActivating) {
                         Reboot();
@@ -803,10 +858,18 @@ void Application::SetDeviceState(DeviceState state) {
     if (device_state_ == state) {
         return;
     }
-    
+
     clock_ticks_ = 0;
     auto previous_state = device_state_;
     device_state_ = state;
+
+#if CONFIG_USE_ALARM
+    // 当设备状态发生变化时，重置闹钟预处理标志
+    // 除非是从聆听状态切换到待命状态（这可能是闹钟预处理导致的）
+    if(!(previous_state == kDeviceStateListening && state == kDeviceStateIdle)){
+        alarm_pre_processing_active_ = false;
+    }
+#endif
     
     // 添加详细的状态切换日志，特别关注listening相关的切换
     if (state == kDeviceStateListening || previous_state == kDeviceStateListening ||
@@ -1063,6 +1126,39 @@ bool Application::IsAudioQueueEmpty() const {
     return audio_decode_queue_.empty();
 }
 
+void Application::DiscardPendingAudioForAlarm() {
+    ESP_LOGI(TAG, "闹钟预处理：丢弃待处理的音频数据...");
+
+    // 1. 停止音频处理器，防止新的音频数据进入
+#if CONFIG_USE_AUDIO_PROCESSOR
+    if (audio_processor_.IsRunning()) {
+        audio_processor_.Stop();
+        ESP_LOGI(TAG, "音频处理器已停止");
+    }
+#endif
+
+    // 2. 清空背景任务队列，丢弃所有待编码的音频任务
+    if (background_task_) {
+        background_task_->ClearQueue();
+        ESP_LOGI(TAG, "背景任务队列已清空，待编码音频已丢弃");
+    }
+
+    // 3. 重置Opus编码器状态，确保没有残留的音频数据
+    if (opus_encoder_) {
+        opus_encoder_->ResetState();
+        ESP_LOGI(TAG, "Opus编码器状态已重置");
+    }
+
+    // 4. 清空音频解码队列（虽然这是输出队列，但为了保险起见也清空）
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        audio_decode_queue_.clear();
+        ESP_LOGI(TAG, "音频解码队列已清空");
+    }
+
+    ESP_LOGI(TAG, "闹钟预处理：所有待处理音频数据已丢弃完成");
+}
+
 // **新增：强力音频保护机制实现**
 
 bool Application::IsAudioActivityHigh() const {
@@ -1247,4 +1343,35 @@ Application::AudioActivityLevel Application::GetAudioActivityLevel() const {
     
     // 最低级别：完全空闲 - 允许正常图片播放
     return AUDIO_IDLE;
+}
+
+void Application::SendAlarmMessage() {
+#if CONFIG_USE_ALARM
+    if (alarm_m_ == nullptr) {
+        ESP_LOGE(TAG, "AlarmManager is null, cannot send alarm message");
+        return;
+    }
+
+    std::string alarm_message = alarm_m_->get_now_alarm_name();
+    ESP_LOGI(TAG, "原始闹钟消息: %s", alarm_message.c_str());
+
+    // 从JSON中提取闹钟名称 - 修复字符串解析问题
+    size_t start = alarm_message.find("闹钟-#");
+    if (start != std::string::npos) {
+        start += 5; // "闹钟-#" 的字节长度（UTF-8编码）
+        size_t end = alarm_message.find("\"", start);
+        if (end != std::string::npos) {
+            std::string alarm_name = alarm_message.substr(start, end - start);
+            std::string alarm_text = "闹钟-" + alarm_name;
+            protocol_->SendWakeWordDetected(alarm_text);
+            ESP_LOGI(TAG, "闹钟消息已发送: %s", alarm_text.c_str());
+        } else {
+            ESP_LOGW(TAG, "无法解析闹钟名称结束位置，使用备用方案");
+            protocol_->SendText(alarm_message);
+        }
+    } else {
+        ESP_LOGW(TAG, "闹钟消息格式异常，使用备用方案");
+        protocol_->SendText(alarm_message);
+    }
+#endif
 }

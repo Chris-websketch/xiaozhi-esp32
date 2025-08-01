@@ -120,8 +120,16 @@ bool Protocol::IsTimeout() const {
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - last_incoming_time_);
     bool timeout = duration.count() > kTimeoutSeconds;
+
+    // 减少重复日志：只在超时状态刚开始时打印一次，或者每10秒打印一次
     if (timeout) {
-        ESP_LOGE(TAG, "Channel timeout %lld seconds", duration.count());
+        static auto last_log_time = std::chrono::steady_clock::time_point{};
+        auto time_since_last_log = std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time);
+
+        if (last_log_time == std::chrono::steady_clock::time_point{} || time_since_last_log.count() >= 10) {
+            ESP_LOGE(TAG, "Channel timeout %lld seconds", duration.count());
+            last_log_time = now;
+        }
     }
     return timeout;
 }

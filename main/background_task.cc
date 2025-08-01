@@ -47,6 +47,16 @@ void BackgroundTask::WaitForCompletion() {
     });
 }
 
+void BackgroundTask::ClearQueue() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    size_t cleared_tasks = main_tasks_.size();
+    main_tasks_.clear();
+    // 重置活跃任务计数器，因为我们丢弃了所有待处理的任务
+    active_tasks_ = 0;
+    ESP_LOGI(TAG, "清空了 %zu 个待处理任务", cleared_tasks);
+    condition_variable_.notify_all();
+}
+
 void BackgroundTask::BackgroundTaskLoop() {
     ESP_LOGI(TAG, "background_task started");
     while (true) {
