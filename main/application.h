@@ -149,11 +149,16 @@ private:
     // 图片资源管理相关变量
     bool ota_check_completed_ = false;
     std::function<void()> image_resource_callback_;
+    
+    // 超时处理相关变量
+    bool timeout_handling_active_ = false;
+    bool protocol_invalidated_by_timeout_ = false;
 
     // Audio encode / decode
     TaskHandle_t audio_loop_task_handle_ = nullptr;
     BackgroundTask* background_task_ = nullptr;
     std::chrono::steady_clock::time_point last_output_time_;
+    std::chrono::steady_clock::time_point last_button_wake_time_;  // 记录按键唤醒时间
 #if CONFIG_USE_ALARM
 
 #else
@@ -176,6 +181,7 @@ private:
     void CheckNewVersion();
     void ShowActivationCode();
     void OnClockTimer();
+    void HandleProtocolTimeout();
     void SetListeningMode(ListeningMode mode);
     void AudioLoop();
 };

@@ -271,12 +271,15 @@ void Application::ToggleChatState() {
     if (device_state_ == kDeviceStateIdle) {
         Schedule([this]() {
             SetDeviceState(kDeviceStateConnecting);
+            // Reset timeout invalidation flag when attempting new connection
+            protocol_invalidated_by_timeout_ = false;
             if (!protocol_->OpenAudioChannel()) {
                 return;
             }
 
             // 添加按键唤醒消息，让服务器知道这是一次新对话开始
             ESP_LOGI(TAG, "按键唤醒，发送唤醒消息给服务器");
+            last_button_wake_time_ = std::chrono::steady_clock::now();  // 记录按键唤醒时间
             protocol_->SendWakeWordDetected("button");
 
             SetListeningMode(realtime_chat_enabled_ ? kListeningModeRealtime : kListeningModeAutoStop);
@@ -308,12 +311,15 @@ void Application::StartListening() {
             bool was_channel_closed = !protocol_->IsAudioChannelOpened();
             if (was_channel_closed) {
                 SetDeviceState(kDeviceStateConnecting);
+                // Reset timeout invalidation flag when attempting new connection
+                protocol_invalidated_by_timeout_ = false;
                 if (!protocol_->OpenAudioChannel()) {
                     return;
                 }
                 
                 // 如果是首次打开音频通道，发送按键唤醒消息
                 ESP_LOGI(TAG, "按住说话首次连接，发送唤醒消息给服务器");
+                last_button_wake_time_ = std::chrono::steady_clock::now();  // 记录按键唤醒时间
                 protocol_->SendWakeWordDetected("button");
             }
 
@@ -536,6 +542,8 @@ void Application::Start() {
                 SetDeviceState(kDeviceStateConnecting);
                 wake_word_detect_.EncodeWakeWordData();
 
+                // Reset timeout invalidation flag when attempting new connection
+                protocol_invalidated_by_timeout_ = false;
                 if (!protocol_->OpenAudioChannel()) {
                     wake_word_detect_.StartDetection();
                     return;
@@ -581,6 +589,28 @@ void Application::Start() {
 
 void Application::OnClockTimer() {
     clock_ticks_++;
+
+    // Check for protocol timeout every second by monitoring channel state changes
+    // Only check when device is in active states, avoid checking when already idle
+    static bool was_channel_opened_last_check = false;
+    if (protocol_ && device_state_ != kDeviceStateIdle) {
+        bool is_channel_opened = protocol_->IsAudioChannelOpened();
+        
+        // If channel was opened before but now it's closed due to timeout (and not by user action)
+        if (was_channel_opened_last_check && !is_channel_opened && 
+            (device_state_ == kDeviceStateConnecting || device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking) &&
+            !timeout_handling_active_) {
+            ESP_LOGW(TAG, "Protocol timeout detected (channel state changed), scheduling timeout handling");
+            Schedule([this]() {
+                HandleProtocolTimeout();
+            });
+        }
+        
+        was_channel_opened_last_check = is_channel_opened;
+    } else if (device_state_ == kDeviceStateIdle) {
+        // Reset the check when device becomes idle to prevent false positives on next connection
+        was_channel_opened_last_check = false;
+    }
 
     // Print the debug info every 10 seconds
     if (clock_ticks_ % 10 == 0) {
@@ -699,6 +729,8 @@ void Application::AudioLoop() {
                     }
                     if (!protocol_->IsAudioChannelOpened()) {
                         SetDeviceState(kDeviceStateConnecting);
+                        // Reset timeout invalidation flag when attempting new connection
+                        protocol_invalidated_by_timeout_ = false;
                         if (!protocol_->OpenAudioChannel()) {
                             SetDeviceState(kDeviceStateIdle);
                             return;
@@ -892,6 +924,7 @@ void Application::SetDeviceState(DeviceState state) {
     switch (state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+        {
             ESP_LOGI(TAG, "设备进入 idle 状态，调用 display->SetIdle(true)");
             display->SetIdle(true);
             display->SetStatus(Lang::Strings::STANDBY);
@@ -909,21 +942,47 @@ void Application::SetDeviceState(DeviceState state) {
             wake_word_detect_.StartDetection();
 #endif
             break;
+        }
         case kDeviceStateConnecting:
+        {
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
             break;
+        }
         case kDeviceStateListening:
+        {
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 
             // Update the IoT states before sending the start listening command
             UpdateIotStates();
 
-            // 每次进入listening状态都发送listen start给服务器
-            protocol_->SendStartListening(listening_mode_);
-            ESP_LOGI(TAG, "进入listening状态，发送listen start通知服务器开始监听");
+            // 优化：避免在按键唤醒后立即发送start事件，防止打断detect事件的处理
+            {
+                auto now = std::chrono::steady_clock::now();
+                auto time_since_button_wake = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_button_wake_time_).count();
+                
+                // 如果是按键唤醒后1000ms内且从connecting状态切换过来，延迟发送start
+                if (previous_state == kDeviceStateConnecting && time_since_button_wake < 1000) {
+                    ESP_LOGI(TAG, "按键唤醒场景检测到，延迟发送listen start (距离唤醒%lldms)", time_since_button_wake);
+                    
+                    // 延迟800ms发送start事件，给服务器时间处理detect事件
+                    Schedule([this]() {
+                        vTaskDelay(pdMS_TO_TICKS(800));
+                        if (device_state_ == kDeviceStateListening) {
+                            protocol_->SendStartListening(listening_mode_);
+                            ESP_LOGI(TAG, "延迟发送listen start通知服务器开始监听");
+                        } else {
+                            ESP_LOGI(TAG, "设备状态已改变，取消延迟的listen start");
+                        }
+                    });
+                } else {
+                    // 正常情况下立即发送
+                    protocol_->SendStartListening(listening_mode_);
+                    ESP_LOGI(TAG, "进入listening状态，发送listen start通知服务器开始监听");
+                }
+            }
 
             // Make sure the audio processor is running
 #if CONFIG_USE_AUDIO_PROCESSOR
@@ -951,7 +1010,9 @@ void Application::SetDeviceState(DeviceState state) {
 #endif
             }
             break;
+        }
         case kDeviceStateSpeaking:
+        {
             display->SetStatus(Lang::Strings::SPEAKING);
             display->SetEmotion("speaking");
 
@@ -971,6 +1032,14 @@ void Application::SetDeviceState(DeviceState state) {
                 });
             }
             ResetDecoder();
+            break;
+        }
+        case kDeviceStateStarting:
+        case kDeviceStateWifiConfiguring:
+        case kDeviceStateUpgrading:
+        case kDeviceStateActivating:
+        case kDeviceStateFatalError:
+            // These states are handled elsewhere or don't need specific actions here
             break;
         default:
             // Do nothing
@@ -1055,6 +1124,12 @@ bool Application::CanEnterSleepMode() {
         return false;
     }
 
+    // If protocol was invalidated by timeout, don't check channel status to avoid error logs
+    if (protocol_invalidated_by_timeout_) {
+        return true;
+    }
+
+    // Check if audio channel is opened (this may trigger timeout logs if protocol is in error state)
     if (protocol_ && protocol_->IsAudioChannelOpened()) {
         return false;
     }
@@ -1269,6 +1344,15 @@ int Application::GetAudioPerformanceScore() const {
         case kDeviceStateConnecting:
             score -= 15; // 连接时有一定压力
             break;
+        case kDeviceStateStarting:
+        case kDeviceStateWifiConfiguring:
+        case kDeviceStateUpgrading:
+        case kDeviceStateActivating:
+        case kDeviceStateFatalError:
+        case kDeviceStateUnknown:
+        case kDeviceStateIdle:
+            // These states have minimal impact on audio performance
+            break;
         default:
             break;
     }
@@ -1374,4 +1458,66 @@ void Application::SendAlarmMessage() {
         protocol_->SendText(alarm_message);
     }
 #endif
+}
+
+void Application::HandleProtocolTimeout() {
+    // 防止重复处理超时
+    if (timeout_handling_active_) {
+        return;
+    }
+    
+    timeout_handling_active_ = true;
+    ESP_LOGW(TAG, "Handling protocol timeout - current state: %s", STATE_STRINGS[device_state_]);
+    
+    // 检查是否在关键状态，如果是则不处理超时
+    if (device_state_ == kDeviceStateUpgrading || 
+        device_state_ == kDeviceStateWifiConfiguring ||
+        device_state_ == kDeviceStateActivating) {
+        ESP_LOGI(TAG, "Device in critical state, skipping timeout handling");
+        timeout_handling_active_ = false;
+        return;
+    }
+    
+    // 主动关闭音频通道
+    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+        ESP_LOGI(TAG, "Closing audio channel due to timeout");
+        protocol_->CloseAudioChannel();
+    }
+    
+    // 清理音频队列
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        audio_decode_queue_.clear();
+        ESP_LOGI(TAG, "Audio decode queue cleared");
+    }
+    
+    // 等待背景任务完成
+    if (background_task_) {
+        background_task_->WaitForCompletion();
+    }
+    
+    // 重置音频编码器和解码器状态
+    if (opus_encoder_) {
+        opus_encoder_->ResetState();
+    }
+    if (opus_decoder_) {
+        opus_decoder_->ResetState();
+    }
+    
+    // 停止音频处理器
+#if CONFIG_USE_AUDIO_PROCESSOR
+    if (audio_processor_.IsRunning()) {
+        audio_processor_.Stop();
+        audio_processor_.ForceResetBuffer();
+    }
+#endif
+    
+    // 标记Protocol为失效状态，避免后续的重复检查
+    protocol_invalidated_by_timeout_ = true;
+    
+    // 设置设备状态为idle
+    SetDeviceState(kDeviceStateIdle);
+    
+    ESP_LOGI(TAG, "Protocol timeout handling completed, device returned to idle state");
+    timeout_handling_active_ = false;
 }
