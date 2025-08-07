@@ -76,6 +76,9 @@ public:
     Protocol& GetProtocol() { return *protocol_; }
     Ota& GetOta() { return ota_; }
     
+    // 声波配网需要访问音频数据的公共接口
+    void ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
+    
     // 图片资源管理相关方法
     void SetImageResourceCallback(std::function<void()> callback);
     bool IsOtaCheckCompleted() const { return ota_check_completed_; }
@@ -175,7 +178,6 @@ private:
     void MainLoop();
     void OnAudioInput();
     void OnAudioOutput();
-    void ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckNewVersion();

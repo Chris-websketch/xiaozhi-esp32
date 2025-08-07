@@ -21,6 +21,11 @@
 #include <wifi_configuration_ap.h>
 #include <ssid_manager.h>
 
+#if CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
+#include "afsk_demod.h"
+#include "board.h"
+#endif
+
 static const char *TAG = "WifiBoard";
 
 WifiBoard::WifiBoard() {
@@ -50,10 +55,44 @@ void WifiBoard::EnterWifiConfigMode() {
     hint += wifi_ap.GetSsid();
     hint += Lang::Strings::ACCESS_VIA_BROWSER;
     hint += wifi_ap.GetWebServerUrl();
-    hint += "\n\n";
+    hint += "\n";
+    
+#if CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
+    // 添加声波配网提示信息
+    hint += "或播放声波配网音频进行快速配置\n";
+#endif
     
     // 播报配置 WiFi 的提示
     application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_CCC_PW);
+    
+#if CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
+    // 启动声波配网任务作为传统配网的补充
+    auto display = Board::GetInstance().GetDisplay();
+    auto codec = Board::GetInstance().GetAudioCodec();
+    int input_channels = 1;
+    if (codec) {
+        input_channels = codec->input_channels();
+    }
+    
+    ESP_LOGI(TAG, "启动声波配网功能作为配网补充选项，音频输入通道数: %d", input_channels);
+    
+    // 创建声波配网任务
+    xTaskCreate([](void* param) {
+        auto* params = static_cast<std::tuple<Application*, Display*, size_t>*>(param);
+        auto* app = std::get<0>(*params);
+        auto* display = std::get<1>(*params);
+        auto channels = std::get<2>(*params);
+        
+        ESP_LOGI("AcousticWiFi", "声波配网任务启动");
+        audio_wifi_config::ReceiveWifiCredentialsFromAudio(app, display, channels);
+        
+        delete params;
+        vTaskDelete(NULL);
+    }, "acoustic_wifi_config", 8192, 
+       new std::tuple<Application*, Display*, size_t>(
+           &application, display, input_channels), 
+       5, NULL);
+#endif
     
     // Wait forever until reset after configuration
     while (true) {

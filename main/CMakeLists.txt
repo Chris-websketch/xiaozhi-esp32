@@ -181,6 +181,9 @@ endif()
 if(CONFIG_USE_WAKE_WORD_DETECT)
     list(APPEND SOURCES "audio_processing/wake_word_detect.cc")
 endif()
+if(CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING)
+    list(APPEND SOURCES "boards/common/afsk_demod.cc")
+endif()
 
 # 根据Kconfig选择语言目录
 if(CONFIG_LANGUAGE_ZH_CN)
