@@ -3106,6 +3106,12 @@ bool ImageResourceManager::ClearAllImageFiles() {
 esp_err_t ImageResourceManager::PreloadRemainingImages() {
     if (!has_valid_images_ || image_array_.empty()) {
         ESP_LOGW(TAG, "没有有效的图片资源，跳过预加载");
+        if (preload_progress_callback_) {
+            // 简要提示后隐藏预加载UI，避免遮挡
+            preload_progress_callback_(0, 0, "暂无图片可预加载");
+            vTaskDelay(pdMS_TO_TICKS(800));
+            preload_progress_callback_(0, 0, nullptr);
+        }
         return ESP_FAIL;
     }
     
@@ -3155,7 +3161,7 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
                     snprintf(message, sizeof(message), "预加载中断：检测到音频活动");
                     preload_progress_callback_(loaded_count, total_images, message);
                     vTaskDelay(pdMS_TO_TICKS(1500)); // 从2秒减少到1.5秒显示时间
-                    preload_progress_callback_(loaded_count, total_images, nullptr); // 隐藏UI
+                    // 不在中断时隐藏UI，避免重复隐藏回调；仅在真正完成时统一隐藏
                 }
                 break;
             }
@@ -3172,7 +3178,7 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
                 snprintf(message, sizeof(message), "预加载停止：内存不足");
                 preload_progress_callback_(loaded_count, total_images, message);
                 vTaskDelay(pdMS_TO_TICKS(1500)); // 从2秒减少到1.5秒显示时间
-                preload_progress_callback_(loaded_count, total_images, nullptr); // 隐藏UI
+                // 不在内存不足时隐藏UI，避免重复隐藏回调；仅在真正完成时统一隐藏
             }
             break;
         }
@@ -3216,18 +3222,16 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
              loaded_count, total_images, (unsigned int)free_heap);
     ESP_LOGI(TAG, "已启用服务器直传二进制格式优化，下载+预加载速度大幅提升");
     
-    // 通知预加载完成
+    // 统一在函数结束时隐藏预加载UI（无论是否全部完成），只回调一次
     if (preload_progress_callback_) {
         char message[64];
         if (loaded_count == total_images) {
             snprintf(message, sizeof(message), "所有图片预加载完成！");
         } else {
-            snprintf(message, sizeof(message), "预加载完成：%d/%d 张图片", loaded_count, total_images);
+            snprintf(message, sizeof(message), "预加载结束：%d/%d 张图片", loaded_count, total_images);
         }
         preload_progress_callback_(loaded_count, total_images, message);
-        
-        // 优化：减少UI显示时间
-        vTaskDelay(pdMS_TO_TICKS(1500)); // 从2秒减少到1.5秒
+        vTaskDelay(pdMS_TO_TICKS(1200));
         preload_progress_callback_(loaded_count, total_images, nullptr);
     }
     

@@ -147,6 +147,8 @@ elseif(CONFIG_BOARD_TYPE_ESP32_CGC)
     set(BOARD_TYPE "esp32-cgc")
 elseif(CONFIG_BOARD_TYPE_ABROBOT_1_28TFT_WIFI)
     set(BOARD_TYPE "moon")
+elseif(CONFIG_BOARD_TYPE_NULLLAB_AI_VOX)
+    set(BOARD_TYPE "nulllab-ai-vox")
 endif()
 
 file(GLOB BOARD_SOURCES

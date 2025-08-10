@@ -537,33 +537,10 @@ void Application::Start() {
 #if CONFIG_USE_WAKE_WORD_DETECT
     wake_word_detect_.Initialize(codec);
     wake_word_detect_.OnWakeWordDetected([this](const std::string& wake_word) {
-        Schedule([this, &wake_word]() {
-            if (device_state_ == kDeviceStateIdle) {
-                SetDeviceState(kDeviceStateConnecting);
-                wake_word_detect_.EncodeWakeWordData();
-
-                // Reset timeout invalidation flag when attempting new connection
-                protocol_invalidated_by_timeout_ = false;
-                if (!protocol_->OpenAudioChannel()) {
-                    wake_word_detect_.StartDetection();
-                    return;
-                }
-                
-                std::vector<uint8_t> opus;
-                // Encode and send the wake word data to the server
-                while (wake_word_detect_.GetWakeWordOpus(opus)) {
-                    protocol_->SendAudio(opus);
-                }
-                // Set the chat state to wake word detected
-                protocol_->SendWakeWordDetected(wake_word);
-                ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
-                SetListeningMode(realtime_chat_enabled_ ? kListeningModeRealtime : kListeningModeAutoStop);
-            } else if (device_state_ == kDeviceStateSpeaking) {
-                AbortSpeaking(kAbortReasonWakeWordDetected);
-            } else if (device_state_ == kDeviceStateActivating) {
-                SetDeviceState(kDeviceStateIdle);
-            }
-        });
+        ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
+        
+        // 直接调用按键唤醒逻辑，确保行为完全一致
+        ToggleChatState();
     });
     wake_word_detect_.StartDetection();
 #endif
@@ -766,7 +743,15 @@ void Application::OnAudioOutput() {
     }
 
     if (device_state_ == kDeviceStateListening) {
-        audio_decode_queue_.clear();
+        // 首帧音频在listening到达：不丢弃，异步切换到speaking后再播放
+        lock.unlock();
+        Schedule([this]() {
+            if (device_state_ == kDeviceStateListening) {
+                aborted_ = false;
+                SetDeviceState(kDeviceStateSpeaking);
+                ESP_LOGI(TAG, "⚡ 检测到服务器音频到达（listening），自动切换到speaking进行播放");
+            }
+        });
         return;
     }
 
@@ -969,7 +954,7 @@ void Application::SetDeviceState(DeviceState state) {
                     
                     // 延迟800ms发送start事件，给服务器时间处理detect事件
                     Schedule([this]() {
-                        vTaskDelay(pdMS_TO_TICKS(800));
+                        vTaskDelay(pdMS_TO_TICKS(500));
                         if (device_state_ == kDeviceStateListening) {
                             protocol_->SendStartListening(listening_mode_);
                             ESP_LOGI(TAG, "延迟发送listen start通知服务器开始监听");
@@ -1099,13 +1084,12 @@ void Application::Reboot() {
 }
 
 void Application::WakeWordInvoke(const std::string& wake_word) {
+    ESP_LOGI(TAG, "WakeWordInvoke called with: %s", wake_word.c_str());
+    
     if (device_state_ == kDeviceStateIdle) {
+        // 直接调用按键唤醒逻辑，无需额外发送detect消息
+        // ToggleChatState()内部已经会发送SendWakeWordDetected("button")
         ToggleChatState();
-        Schedule([this, wake_word]() {
-            if (protocol_) {
-                protocol_->SendWakeWordDetected(wake_word); 
-            }
-        }); 
     } else if (device_state_ == kDeviceStateSpeaking) {
         Schedule([this]() {
             AbortSpeaking(kAbortReasonNone);

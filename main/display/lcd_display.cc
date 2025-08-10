@@ -568,6 +568,8 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_width(content_, LV_HOR_RES);
     lv_obj_set_flex_grow(content_, 1);
     lv_obj_set_style_pad_all(content_, 5, 0);
+    // Move chat_message_label_ downward by extra 30px (5 + 30 = 35)
+    lv_obj_set_style_pad_top(content_, 85, 0);
     lv_obj_set_style_bg_color(content_, current_theme.chat_background, 0);
     lv_obj_set_style_border_color(content_, current_theme.border, 0); // Border color for content
 
