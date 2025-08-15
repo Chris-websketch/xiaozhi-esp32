@@ -429,6 +429,11 @@ HTML/XML：
  *  “ENTER PLAN MODE”
  *  “ENTER EXECUTE MODE”
  *  “ENTER REVIEW MODE”
+ *  “进入研究模式”  
+*   “进入创新模式”  
+*   “进入计划模式”  
+*   “进入执行模式”  
+*   “进入审查模式”  
 
 没有这些确切信号，请保持在当前模式。
 

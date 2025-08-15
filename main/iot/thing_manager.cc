@@ -40,6 +40,9 @@ bool ThingManager::GetStatesJson(std::string& json, bool delta) {
             }
             changed = true;
             last_states_[thing->name()] = state;
+        } else {
+            // 非增量模式：同步快照到缓存
+            last_states_[thing->name()] = state;
         }
         json += state + ",";
     }
@@ -47,6 +50,10 @@ bool ThingManager::GetStatesJson(std::string& json, bool delta) {
         json.pop_back();
     }
     json += "]";
+    if (!delta) {
+        // 非增量模式：只要存在至少一个Thing即认为有内容可上报
+        changed = !things_.empty();
+    }
     return changed;
 }
 
@@ -58,6 +65,21 @@ void ThingManager::Invoke(const cJSON* command) {
             return;
         }
     }
+}
+
+bool ThingManager::InvokeSync(const cJSON* command, std::string* error) {
+    auto name = cJSON_GetObjectItem(command, "name");
+    if (name == nullptr || !cJSON_IsString(name)) {
+        if (error) *error = "missing name";
+        return false;
+    }
+    for (auto& thing : things_) {
+        if (thing->name() == name->valuestring) {
+            return thing->InvokeSync(command, error);
+        }
+    }
+    if (error) *error = std::string("Thing not found: ") + name->valuestring;
+    return false;
 }
 
 } // namespace iot

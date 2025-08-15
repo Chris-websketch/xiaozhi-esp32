@@ -269,6 +269,7 @@ public:
     virtual std::string GetDescriptorJson();
     virtual std::string GetStateJson();
     virtual void Invoke(const cJSON* command);
+    virtual bool InvokeSync(const cJSON* command, std::string* error);
 
     const std::string& name() const { return name_; }
     const std::string& description() const { return description_; }

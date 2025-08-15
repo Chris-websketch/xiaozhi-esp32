@@ -74,4 +74,46 @@ void Thing::Invoke(const cJSON* command) {
 }
 
 
+bool Thing::InvokeSync(const cJSON* command, std::string* error) {
+    auto method_name = cJSON_GetObjectItem(command, "method");
+    auto input_params = cJSON_GetObjectItem(command, "parameters");
+
+    if (method_name == nullptr || !cJSON_IsString(method_name)) {
+        if (error) *error = "missing method";
+        return false;
+    }
+    if (input_params == nullptr) {
+        if (error) *error = "missing parameters";
+        return false;
+    }
+
+    try {
+        auto& method = methods_[method_name->valuestring];
+        for (auto& param : method.parameters()) {
+            auto input_param = cJSON_GetObjectItem(input_params, param.name().c_str());
+            if (param.required() && input_param == nullptr) {
+                if (error) *error = std::string("Parameter ") + param.name() + " is required";
+                return false;
+            }
+            if (input_param) {
+                if (param.type() == kValueTypeNumber) {
+                    param.set_number(input_param->valueint);
+                } else if (param.type() == kValueTypeString) {
+                    param.set_string(input_param->valuestring);
+                } else if (param.type() == kValueTypeBoolean) {
+                    param.set_boolean(input_param->valueint == 1);
+                }
+            }
+        }
+
+        method.Invoke();
+        return true;
+    } catch (const std::runtime_error& e) {
+        if (error) *error = std::string("Method not found: ") + method_name->valuestring;
+        ESP_LOGE(TAG, "InvokeSync error: %s", error ? error->c_str() : "");
+        return false;
+    }
+}
+
+
 } // namespace iot

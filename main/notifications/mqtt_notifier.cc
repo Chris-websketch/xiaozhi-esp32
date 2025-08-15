@@ -6,6 +6,7 @@
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
 #include <time.h>
+#include "iot/thing_manager.h"
 
 static const char* TAG = "MqttNotifier";
 
@@ -40,6 +41,8 @@ bool MqttNotifier::LoadSettings() {
 	// 计算上行主题（心跳与事件上报）
 	if (!client_id_.empty()) {
 		uplink_topic_ = std::string("devices/") + client_id_ + "/uplink";
+		// 计算 ACK 主题（指令执行结果）
+		ack_topic_ = std::string("devices/") + client_id_ + "/ack";
 	}
 	if (endpoint_.empty() || client_id_.empty()) {
 		ESP_LOGW(TAG, "MQTT notifier settings incomplete (endpoint/client_id)");
@@ -80,6 +83,12 @@ bool MqttNotifier::ConnectInternal() {
 	mqtt_->OnMessage([this](const std::string& topic, const std::string& payload) {
 		ESP_LOGI(TAG, "MQTT message received: topic=%s, payload=%s", topic.c_str(), payload.c_str());
 		
+		// 过滤：忽略自发主题（uplink/ack），设备不应该接收自己发布的消息
+		if ((!uplink_topic_.empty() && topic == uplink_topic_) || (!ack_topic_.empty() && topic == ack_topic_)) {
+			ESP_LOGW(TAG, "Ignoring unexpected uplink message (device should not subscribe to uplink)");
+			return;
+		}
+		
 		cJSON* root = cJSON_Parse(payload.c_str());
 		if (root && on_message_) {
 			on_message_(root);
@@ -106,10 +115,10 @@ bool MqttNotifier::ConnectInternal() {
 		return false;
 	}
 
-	// 启动心跳任务（每10秒上报在线状态+指标）
+	// 启动心跳任务（每30秒上报在线状态+指标）
 	if (heartbeat_task_handle_ == nullptr) {
 		xTaskCreate([](void* arg){
-			static const int kIntervalMs = 10000;
+			static const int kIntervalMs = 30000;
 			MqttNotifier* self = static_cast<MqttNotifier*>(arg);
 			for(;;){
 				if (self->mqtt_ && self->mqtt_->IsConnected()) {
@@ -144,6 +153,17 @@ bool MqttNotifier::ConnectInternal() {
 						cJSON_AddItemToObject(root, "wifi", wifi);
 					}
 
+					// IoT设备状态（快照）：解析成功且非空数组才附加，避免依赖返回布尔值语义
+					auto& thing_manager = iot::ThingManager::GetInstance();
+					std::string iot_states_json;
+					thing_manager.GetStatesJson(iot_states_json, false);
+					cJSON* iot_states = cJSON_Parse(iot_states_json.c_str());
+					if (iot_states && cJSON_IsArray(iot_states) && cJSON_GetArraySize(iot_states) > 0) {
+						cJSON_AddItemToObject(root, "iot_states", iot_states);
+					} else if (iot_states) {
+						cJSON_Delete(iot_states);
+					}
+
 					char* payload = cJSON_PrintUnformatted(root);
 					if (payload) {
 						if (!self->uplink_topic_.empty()) {
@@ -161,7 +181,8 @@ bool MqttNotifier::ConnectInternal() {
 
 	// 显式订阅下行主题，确保服务端推送能到达
 	if (!downlink_topic_.empty()) {
-		bool sub_ok = mqtt_->Subscribe(downlink_topic_, 0);
+		// 可靠控制：订阅使用 QoS 2
+		bool sub_ok = mqtt_->Subscribe(downlink_topic_, 2);
 		ESP_LOGI(TAG, "Subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
 	}
 	
@@ -195,4 +216,56 @@ void MqttNotifier::OnMessage(std::function<void(const cJSON* root)> cb) {
 	on_message_ = std::move(cb);
 }
 
+
+bool MqttNotifier::PublishUplink(const char* json, int qos) {
+	if (mqtt_ == nullptr || uplink_topic_.empty()) {
+		ESP_LOGW(TAG, "PublishUplink skipped: mqtt not ready or uplink topic empty");
+		return false;
+	}
+	int attempt_qos = qos;
+	if (attempt_qos < 0) attempt_qos = 0;
+	if (attempt_qos > 2) attempt_qos = 2;
+	bool ok = mqtt_->Publish(uplink_topic_, json, attempt_qos);
+	if (ok) {
+		ESP_LOGI(TAG, "PublishUplink %s (QoS=%d): sent", uplink_topic_.c_str(), attempt_qos);
+	} else {
+		ESP_LOGW(TAG, "PublishUplink %s (QoS=%d): send failed, but message may still reach server", uplink_topic_.c_str(), attempt_qos);
+	}
+	return ok;
+}
+
+bool MqttNotifier::PublishUplink(const cJSON* root, int qos) {
+	if (root == nullptr) return false;
+	char* payload = cJSON_PrintUnformatted(root);
+	if (!payload) return false;
+	bool ok = PublishUplink(payload, qos);
+	cJSON_free(payload);
+	return ok;
+}
+
+bool MqttNotifier::PublishAck(const char* json, int qos) {
+	if (mqtt_ == nullptr || ack_topic_.empty()) {
+		ESP_LOGW(TAG, "PublishAck skipped: mqtt not ready or ack topic empty");
+		return false;
+	}
+	int attempt_qos = qos;
+	if (attempt_qos < 0) attempt_qos = 0;
+	if (attempt_qos > 2) attempt_qos = 2;
+	bool ok = mqtt_->Publish(ack_topic_, json, attempt_qos);
+	if (ok) {
+		ESP_LOGI(TAG, "PublishAck %s (QoS=%d): sent", ack_topic_.c_str(), attempt_qos);
+	} else {
+		ESP_LOGW(TAG, "PublishAck %s (QoS=%d): send failed, but message may still reach server", ack_topic_.c_str(), attempt_qos);
+	}
+	return ok;
+}
+
+bool MqttNotifier::PublishAck(const cJSON* root, int qos) {
+	if (root == nullptr) return false;
+	char* payload = cJSON_PrintUnformatted(root);
+	if (!payload) return false;
+	bool ok = PublishAck(payload, qos);
+	cJSON_free(payload);
+	return ok;
+}
 

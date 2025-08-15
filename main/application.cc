@@ -432,7 +432,8 @@ void Application::Start() {
         auto& thing_manager = iot::ThingManager::GetInstance();
         protocol_->SendIotDescriptors(thing_manager.GetDescriptorsJson());
         std::string states;
-        if (thing_manager.GetStatesJson(states, false)) {
+        thing_manager.GetStatesJson(states, false);
+        if (!states.empty() && states != "[]") {
             protocol_->SendIotStates(states);
         }
         
@@ -612,6 +613,18 @@ void Application::OnMqttNotification(const cJSON* root) {
         ESP_LOGW(TAG, "MQTT notify: missing type");
         return;
     }
+    // 可选请求ID，用于ACK回传关联
+    const cJSON* request_id_item = cJSON_GetObjectItem(root, "request_id");
+    auto add_request_id_if_any = [request_id_item](cJSON* obj){
+        if (!request_id_item) return;
+        if (cJSON_IsString(request_id_item)) {
+            cJSON_AddStringToObject(obj, "request_id", request_id_item->valuestring);
+        } else if (cJSON_IsNumber(request_id_item)) {
+            cJSON_AddNumberToObject(obj, "request_id", request_id_item->valuedouble);
+        } else if (cJSON_IsBool(request_id_item)) {
+            cJSON_AddBoolToObject(obj, "request_id", cJSON_IsTrue(request_id_item));
+        }
+    };
     // 系统控制：通过MQTT触发设备动作（如重启）
     if (strcmp(type->valuestring, "system") == 0) {
         auto action = cJSON_GetObjectItem(root, "action");
@@ -625,6 +638,18 @@ void Application::OnMqttNotification(const cJSON* root) {
                     if (delay_ms > 10000) delay_ms = 10000; // 保护：最大10秒
                 }
                 ESP_LOGW(TAG, "MQTT system action: reboot in %d ms", delay_ms);
+                // 上报ACK（执行结果：ok），随后再调度重启
+                if (notifier_) {
+                    cJSON* ack = cJSON_CreateObject();
+                    cJSON_AddStringToObject(ack, "type", "ack");
+                    cJSON_AddStringToObject(ack, "target", "system");
+                    cJSON_AddStringToObject(ack, "action", "reboot");
+                    cJSON_AddStringToObject(ack, "status", "ok");
+                    cJSON_AddNumberToObject(ack, "delay_ms", delay_ms);
+                    add_request_id_if_any(ack);
+                    notifier_->PublishAck(ack, 2);
+                    cJSON_Delete(ack);
+                }
                 auto display = Board::GetInstance().GetDisplay();
                 if (display) {
                     display->ShowNotification("即将重启...", 1000);
@@ -634,6 +659,17 @@ void Application::OnMqttNotification(const cJSON* root) {
                     Reboot();
                 });
                 return;
+            }
+            // 未支持的system action：返回错误ACK
+            if (notifier_) {
+                cJSON* ack = cJSON_CreateObject();
+                cJSON_AddStringToObject(ack, "type", "ack");
+                cJSON_AddStringToObject(ack, "target", "system");
+                cJSON_AddStringToObject(ack, "status", "error");
+                cJSON_AddStringToObject(ack, "error", "unsupported action");
+                add_request_id_if_any(ack);
+                notifier_->PublishAck(ack, 2);
+                cJSON_Delete(ack);
             }
         }
         return;
@@ -652,16 +688,78 @@ void Application::OnMqttNotification(const cJSON* root) {
         if (!message.empty()) {
             auto display = Board::GetInstance().GetDisplay();
             display->ShowNotification(message.c_str(), 10000);
+            if (notifier_) {
+                cJSON* ack = cJSON_CreateObject();
+                cJSON_AddStringToObject(ack, "type", "ack");
+                cJSON_AddStringToObject(ack, "target", "notify");
+                cJSON_AddStringToObject(ack, "status", "ok");
+                add_request_id_if_any(ack);
+                notifier_->PublishAck(ack, 2);
+                cJSON_Delete(ack);
+            }
+        } else {
+            if (notifier_) {
+                cJSON* ack = cJSON_CreateObject();
+                cJSON_AddStringToObject(ack, "type", "ack");
+                cJSON_AddStringToObject(ack, "target", "notify");
+                cJSON_AddStringToObject(ack, "status", "error");
+                cJSON_AddStringToObject(ack, "error", "empty notification");
+                add_request_id_if_any(ack);
+                notifier_->PublishAck(ack, 2);
+                cJSON_Delete(ack);
+            }
         }
         return;
     }
     if (strcmp(type->valuestring, "iot") == 0) {
         auto commands = cJSON_GetObjectItem(root, "commands");
         if (commands != NULL) {
-            auto& thing_manager = iot::ThingManager::GetInstance();
+            // 逐条命令在主线程同步执行，执行完成后回传ACK
             for (int i = 0; i < cJSON_GetArraySize(commands); ++i) {
-                auto command = cJSON_GetArrayItem(commands, i);
-                thing_manager.Invoke(command);
+                const cJSON* command = cJSON_GetArrayItem(commands, i);
+                // 序列化command以跨线程传递
+                char* cmd_json = cJSON_PrintUnformatted(command);
+                // 从命令级读取可选request_id（优先命令级，其次顶层）
+                std::string req_id_str;
+                const cJSON* cmd_req = cJSON_GetObjectItem(command, "request_id");
+                if (cmd_req && cJSON_IsString(cmd_req)) req_id_str = cmd_req->valuestring;
+                if (req_id_str.empty() && request_id_item && cJSON_IsString(request_id_item)) req_id_str = request_id_item->valuestring;
+                Schedule([this, cmd_json, req_id_str]() {
+                    if (!cmd_json) return;
+                    cJSON* cmd = cJSON_Parse(cmd_json);
+                    cJSON_free(cmd_json);
+                    if (!cmd) return;
+                    std::string error;
+                    bool ok = iot::ThingManager::GetInstance().InvokeSync(cmd, &error);
+                    // 构建ACK
+                    if (notifier_) {
+                        cJSON* ack = cJSON_CreateObject();
+                        cJSON_AddStringToObject(ack, "type", "ack");
+                        cJSON_AddStringToObject(ack, "target", "iot");
+                        cJSON_AddStringToObject(ack, "status", ok ? "ok" : "error");
+                        // 附带原始命令
+                        cJSON_AddItemToObject(ack, "command", cJSON_Duplicate(cmd, 1));
+                        if (!ok) {
+                            cJSON_AddStringToObject(ack, "error", error.c_str());
+                        }
+                        // 附带最新IoT状态（可选）
+                        std::string states_json;
+                        iot::ThingManager::GetInstance().GetStatesJson(states_json, false);
+                        if (!states_json.empty() && states_json != "[]") {
+                            cJSON* states = cJSON_Parse(states_json.c_str());
+                            if (states) {
+                                cJSON_AddItemToObject(ack, "states", states);
+                            }
+                        }
+                        // 追加request_id（若存在）
+                        if (!req_id_str.empty()) {
+                            cJSON_AddStringToObject(ack, "request_id", req_id_str.c_str());
+                        }
+                        notifier_->PublishAck(ack, 2);
+                        cJSON_Delete(ack);
+                    }
+                    cJSON_Delete(cmd);
+                });
             }
         }
         return;

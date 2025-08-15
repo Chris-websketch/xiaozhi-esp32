@@ -29,6 +29,13 @@ public:
 	// 设置收到 JSON 通知时的回调
 	void OnMessage(std::function<void(const cJSON* root)> cb);
 
+	// 向 uplink 主题发布自定义 JSON（QoS=0 默认）
+	bool PublishUplink(const char* json, int qos = 0);
+	bool PublishUplink(const cJSON* root, int qos = 0);
+	// 向独立 ACK 主题发布指令执行结果（默认 QoS=2）
+	bool PublishAck(const char* json, int qos = 2);
+	bool PublishAck(const cJSON* root, int qos = 2);
+
 private:
 	// 读取当前配置到成员变量，返回是否配置有效
 	bool LoadSettings();
@@ -45,6 +52,7 @@ private:
 	std::string password_;
 	std::string downlink_topic_;
 	std::string uplink_topic_;
+	std::string ack_topic_;
 	bool started_ = false;
 	TaskHandle_t heartbeat_task_handle_ = nullptr;
 };
