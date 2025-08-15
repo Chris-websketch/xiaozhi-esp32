@@ -4,14 +4,18 @@
 #include <esp_http_client.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
 #include <cJSON.h>
 #include <inttypes.h>
 #include <wifi_station.h>
 #include "board.h"
+#include <dirent.h>
 #include "system_info.h"  // 新增：包含系统信息头文件
 #include <esp_app_format.h>  // 新增：包含应用描述头文件
 #include <esp_ota_ops.h>      // 新增：包含OTA操作头文件
 #include "application.h"      // 新增：包含应用程序头文件
+#include <esp_system.h>        // 新增：用于esp_restart重启
 
 #define TAG "ImageResManager"
 #define IMAGE_URL_CACHE_FILE "/resources/image_urls.json"  // 修改：图片URL缓存文件
@@ -19,11 +23,12 @@
 #define IMAGE_BASE_PATH "/resources/images/"
 #define LOGO_FILE_PATH "/resources/images/logo.bin"
 #define LOGO_FILE_PATH_H "/resources/images/logo.h"
+#define PACKED_FILE_PATH "/resources/images/packed.rgb"
 #define MAX_IMAGE_FILES 9   // 固定值：API必须返回9个动态图片，本地图片数量不足9个时会触发重新下载
 #define MAX_DOWNLOAD_RETRIES 3  // 设置合理的重试次数为3次
 
-// 添加调试开关，可以通过配置启用
-#define DEBUG_IMAGE_FILES 1
+// 添加调试开关，可以通过配置启用（量产关闭以提升性能）
+#define DEBUG_IMAGE_FILES 0
 
 ImageResourceManager::ImageResourceManager() {
     mounted_ = false;
@@ -651,7 +656,16 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
             progress_callback_(100, 100, "二进制动画图片下载完成，正在加载图片...");
         }
         
-        // 加载新下载的图片数据
+        // 先重建单文件打包，再加载图片数据，避免短暂命中旧包
+        ESP_LOGI(TAG, "动画图片下载完成，开始重建单文件打包: %s", PACKED_FILE_PATH);
+        bool repack_ok = BuildPackedImages();
+        if (!repack_ok) {
+            ESP_LOGW(TAG, "重建单文件打包失败（可能空间不足/文件缺失），将回退逐帧加载");
+        } else {
+            ESP_LOGI(TAG, "重建单文件打包成功");
+        }
+
+        // 加载新下载的图片数据（若repack成功，将优先走packed.rgb快速路径）
         LoadImageData();
         
         // 通知加载完成
@@ -665,6 +679,8 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
         
         ESP_LOGI(TAG, "所有二进制动画图片文件下载完成");
         ExitDownloadMode();  // 退出下载模式
+        ESP_LOGI(TAG, "打包完成，系统即将重启以使用优化后的资源");
+        esp_restart();
         return ESP_OK;
     }
     
@@ -768,6 +784,10 @@ esp_err_t ImageResourceManager::DownloadLogo(const char* api_url) {
     
     // 加载新下载的logo数据
     LoadImageData();
+
+    // logo更新完成后，尝试重建单文件打包（若动画未变也不会有副作用）
+    ESP_LOGI(TAG, "logo下载完成，尝试重建单文件打包: %s", PACKED_FILE_PATH);
+    (void)BuildPackedImages();
     
     // 通知加载完成
     if (progress_callback_) {
@@ -780,6 +800,8 @@ esp_err_t ImageResourceManager::DownloadLogo(const char* api_url) {
     
     ESP_LOGI(TAG, "logo文件下载完成");
     ExitDownloadMode();  // 退出下载模式
+    ESP_LOGI(TAG, "打包完成，系统即将重启以使用优化后的资源");
+    esp_restart();
     return ESP_OK;
 }
 
@@ -1047,10 +1069,9 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         vTaskDelay(pdMS_TO_TICKS(50));  // 减少到50ms
         
         if (download_success) {
-            // 验证下载的二进制文件
-            bool file_valid = true;
-            
+            // 验证下载的二进制文件（仅调试模式）
 #if DEBUG_IMAGE_FILES
+            bool file_valid = true;
             if (strstr(filepath, ".bin") != nullptr) {
                 FILE* verify_file = fopen(filepath, "rb");
                 if (verify_file) {
@@ -1092,7 +1113,7 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
                     return ESP_FAIL;
                 }
             }
-#endif
+#endif // DEBUG_IMAGE_FILES
             
             // 直接处理下载完成的文件
             if (progress_callback_) {
@@ -1338,11 +1359,20 @@ bool ImageResourceManager::LoadBinaryImageFile(int image_index) {
         ESP_LOGE(TAG, "无法打开二进制文件: %s", filename);
         return false;
     }
+    // 提升文件读取性能：设置64KB全缓冲
+    setvbuf(f, NULL, _IOFBF, 65536);
     
-    // 获取文件大小用于调试
+    // 获取文件大小（用于快速判断原始RGB数据）
     fseek(f, 0, SEEK_END);
     long file_size = ftell(f);
     fseek(f, 0, SEEK_SET);
+
+    // 若是标准RGB565大小，直接按原始数据加载（无需BIMG头）
+    const size_t rgb565_size = 240 * 240 * 2;
+    if ((size_t)file_size == rgb565_size) {
+        fclose(f);
+        return LoadRawImageFile(image_index, (size_t)file_size);
+    }
     
 #if DEBUG_IMAGE_FILES
     // 添加调试信息：显示文件的前16字节
@@ -1367,8 +1397,7 @@ bool ImageResourceManager::LoadBinaryImageFile(int image_index) {
         }
         
         // 检查文件大小是否符合原始RGB565格式 (115200字节)
-        const size_t rgb565_size = 240 * 240 * 2;
-        bool matches_rgb565_size = (file_size == rgb565_size);
+        bool matches_rgb565_size = ((size_t)file_size == rgb565_size);
         
         // 根据服务端文档，优先按原始RGB565处理
         if (matches_rgb565_size && !has_binary_header) {
@@ -1485,6 +1514,8 @@ bool ImageResourceManager::LoadRawImageFile(int image_index, size_t file_size) {
         ESP_LOGE(TAG, "无法打开原始数据文件: %s", filename);
         return false;
     }
+    // 提升文件读取性能：设置64KB全缓冲
+    setvbuf(f, NULL, _IOFBF, 65536);
     
     // 分配缓冲区
     uint8_t* img_buffer = (uint8_t*)malloc(file_size);
@@ -1609,7 +1640,16 @@ void ImageResourceManager::LoadImageData() {
         ESP_LOGE(TAG, "加载logo文件失败");
     }
     
-    // 优化启动加载策略：快速启动，延迟加载
+    // 优化：尝试从打包文件一次性加载全部动画帧
+    if (has_valid_images_) {
+        if (LoadPackedImages()) {
+            ESP_LOGI(TAG, "已从单文件打包快速加载全部动画图片");
+            return;
+        }
+        // 打包分片逻辑已彻底移除
+    }
+
+    // 回退：快速启动，延迟加载
     if (has_valid_images_) {
         // 根据缓存的URL数量确定要加载的图片数量，如果缓存为空则扫描本地文件
         int actual_image_count = std::min((int)cached_dynamic_urls_.size(), MAX_IMAGE_FILES);
@@ -1676,6 +1716,231 @@ void ImageResourceManager::LoadImageData() {
     ESP_LOGI(TAG, "优化加载完成，剩余内存: %u字节", (unsigned int)free_heap);
 }
 
+// 尝试从打包文件一次性加载全部图片（240x240x2 * 9）
+bool ImageResourceManager::LoadPackedImages() {
+    FILE* f = fopen(PACKED_FILE_PATH, "rb");
+    if (!f) {
+        return false;
+    }
+    setvbuf(f, NULL, _IOFBF, 65536);
+    const size_t frame_size = 240 * 240 * 2;
+    const int frame_count = MAX_IMAGE_FILES;
+    // 初始化容器
+    image_array_.clear();
+    image_data_pointers_.clear();
+    image_array_.resize(frame_count);
+    image_data_pointers_.resize(frame_count, nullptr);
+    for (int i = 0; i < frame_count; ++i) {
+        uint8_t* buf = (uint8_t*)malloc(frame_size);
+        if (!buf) {
+            // 释放已分配内存
+            for (int j = 0; j < i; ++j) {
+                if (image_data_pointers_[j]) free(image_data_pointers_[j]);
+            }
+            image_data_pointers_.clear();
+            image_array_.clear();
+            fclose(f);
+            return false;
+        }
+        size_t read_size = fread(buf, 1, frame_size, f);
+        if (read_size != frame_size) {
+            free(buf);
+            // 释放已分配内存
+            for (int j = 0; j < i; ++j) {
+                if (image_data_pointers_[j]) free(image_data_pointers_[j]);
+            }
+            image_data_pointers_.clear();
+            image_array_.clear();
+            fclose(f);
+            return false;
+        }
+        image_data_pointers_[i] = buf;
+        image_array_[i] = buf;
+    }
+    fclose(f);
+    return true;
+}
+
+// 分片加载逻辑已移除
+
+// 构建打包文件（在检测到资源均有效时可调用一次，提升下次启动加载速度）
+bool ImageResourceManager::BuildPackedImages() {
+    // 0) 打包前清理：删除所有历史 .rgb 残留，避免资源残留被误用
+    {
+        DIR* dir = opendir(IMAGE_BASE_PATH);
+        if (dir) {
+            struct dirent* ent;
+            while ((ent = readdir(dir)) != NULL) {
+                const char* name = ent->d_name;
+                if (!name || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                    continue;
+                }
+                size_t len = strlen(name);
+                bool is_bin = (len > 4 && strcmp(name + (len - 4), ".bin") == 0);
+                if (!is_bin) {
+                    std::string path = std::string(IMAGE_BASE_PATH) + name;
+                    if (unlink(path.c_str()) == 0) {
+                        ESP_LOGI(TAG, "已删除非BIN资源文件: %s", path.c_str());
+                    } else {
+                        ESP_LOGW(TAG, "删除非BIN资源失败或非普通文件: %s", path.c_str());
+                    }
+                }
+            }
+            closedir(dir);
+        }
+        // 同时删除打包目标（如果还存在），确保干净输出
+        unlink(PACKED_FILE_PATH);
+    }
+
+    // 1) 基本检查：9帧是否齐全且尺寸正确
+    const size_t frame_size = 240 * 240 * 2;
+    for (int i = 1; i <= MAX_IMAGE_FILES; ++i) {
+        char filename[128];
+        snprintf(filename, sizeof(filename), "%soutput_%04d.bin", IMAGE_BASE_PATH, i);
+        struct stat st;
+        if (stat(filename, &st) != 0) {
+            ESP_LOGE(TAG, "打包失败：缺少图片文件 %s", filename);
+            return false;
+        }
+        if ((size_t)st.st_size != frame_size) {
+            ESP_LOGE(TAG, "打包失败：文件尺寸不匹配 %s (size=%ld, expect=%ld)", filename, (long)st.st_size, (long)frame_size);
+            return false;
+        }
+    }
+
+    // 2) 空间检查：SPIFFS剩余空间
+    size_t total = 0, used = 0;
+    if (esp_spiffs_info("resources", &total, &used) != ESP_OK) {
+        ESP_LOGW(TAG, "无法获取SPIFFS信息，跳过空间预检");
+    } else {
+        size_t free_space = (total > used) ? (total - used) : 0;
+        size_t expected_packed = frame_size * MAX_IMAGE_FILES;
+        const size_t safety_margin = 32 * 1024; // 32KB安全余量，提升GC空间裕量
+        if (free_space < expected_packed + safety_margin) {
+            ESP_LOGW(TAG, "打包失败：空间不足 free=%lu expect>=%lu", (unsigned long)free_space, (unsigned long)(expected_packed + safety_margin));
+            // 尝试删除已有的打包文件后重试空间检查
+            struct stat pst;
+            if (stat(PACKED_FILE_PATH, &pst) == 0) {
+                ESP_LOGW(TAG, "尝试删除已有打包文件释放空间: %s", PACKED_FILE_PATH);
+                unlink(PACKED_FILE_PATH);
+                if (esp_spiffs_info("resources", &total, &used) == ESP_OK) {
+                    free_space = (total > used) ? (total - used) : 0;
+                    if (free_space < expected_packed + safety_margin) {
+                        ESP_LOGE(TAG, "删除后空间仍不足 free=%lu", (unsigned long)free_space);
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
+    // 3) 构建：采用分块拷贝与写入重试等优化技术
+    // 先删除旧单文件，避免覆盖失败导致的碎片
+    unlink(PACKED_FILE_PATH);
+    
+    const size_t chunk = 4 * 1024; // 4KB分块，提高打包吞吐
+    // 进度统计：按总字节数计算整体进度（0-100%）
+    const size_t total_bytes = frame_size * MAX_IMAGE_FILES;
+    size_t processed_bytes = 0;
+    int last_percent = -1;
+    if (progress_callback_) {
+        progress_callback_(0, 100, "正在检查资源完整性...");
+    }
+    uint8_t* buf = (uint8_t*)malloc(chunk);
+    if (!buf) {
+        ESP_LOGE(TAG, "打包失败：分配%zu字节缓冲区失败", chunk);
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "开始单文件打包：9帧→%s", PACKED_FILE_PATH);
+    
+    FILE* out = fopen(PACKED_FILE_PATH, "wb");
+    if (!out) {
+        ESP_LOGE(TAG, "打包失败：无法创建输出文件 %s (errno=%d)", PACKED_FILE_PATH, errno);
+        free(buf);
+        return false;
+    }
+    setvbuf(out, NULL, _IOFBF, 32768); // 32KB缓冲
+
+    for (int i = 1; i <= MAX_IMAGE_FILES; ++i) {
+        char filename[128];
+        snprintf(filename, sizeof(filename), "%soutput_%04d.bin", IMAGE_BASE_PATH, i);
+        FILE* in = fopen(filename, "rb");
+        if (!in) {
+            ESP_LOGE(TAG, "打包失败：无法打开源文件 %s", filename);
+            free(buf);
+            fclose(out);
+            unlink(PACKED_FILE_PATH);
+            return false;
+        }
+        setvbuf(in, NULL, _IOFBF, 32768);
+
+        size_t remaining = frame_size;
+        while (remaining > 0) {
+            size_t to_read = remaining > chunk ? chunk : remaining;
+            size_t r = fread(buf, 1, to_read, in);
+            if (r == 0 && remaining > 0) break;
+            
+            // 写入重试机制
+            size_t w = 0;
+            for (int retry = 0; retry < 3; ++retry) {
+                w = fwrite(buf, 1, r, out);
+                if (w == r) break;
+                
+                ESP_LOGW(TAG, "第%d帧写入重试%d次(写入%zu字节，期望%zu字节, errno=%d:%s)", i, retry+1, w, r, errno, strerror(errno));
+                fflush(out);
+                vTaskDelay(pdMS_TO_TICKS(10)); // 10ms延时
+            }
+            
+            if (w != r) {
+                ESP_LOGE(TAG, "打包失败：第%d帧写入失败(最终写入%zu字节，期望%zu字节, errno=%d:%s)", i, w, r, errno, strerror(errno));
+                fclose(in);
+                free(buf);
+                fclose(out);
+                unlink(PACKED_FILE_PATH);
+                if (progress_callback_) {
+                    progress_callback_(0, 100, "打包失败");
+                    // 立即移除遮罩
+                    progress_callback_(0, 100, nullptr);
+                }
+                return false;
+            }
+            remaining -= r;
+
+            // 更新整体进度（按总字节数）
+            if (progress_callback_) {
+                processed_bytes += w;
+                int percent = (int)((processed_bytes * 100) / total_bytes);
+                if (percent > 100) percent = 100;
+                if (percent != last_percent) {
+                    char msg[48];
+                    snprintf(msg, sizeof(msg), "正在检查资源完整性");
+                    progress_callback_(percent, 100, msg);
+                    last_percent = percent;
+                }
+            }
+        }
+        fclose(in);
+        ESP_LOGI(TAG, "第%d帧写入完成", i);
+    }
+
+    free(buf);
+    fflush(out);
+    fclose(out);
+    ESP_LOGI(TAG, "已构建打包文件: %s", PACKED_FILE_PATH);
+    if (progress_callback_) {
+        progress_callback_(100, 100, "检查完成");
+        // 短暂显示完成状态后移除遮罩
+        vTaskDelay(pdMS_TO_TICKS(500));
+        progress_callback_(100, 100, nullptr);
+    }
+    return true;
+}
+
+// 分片构建逻辑已移除
+
 bool ImageResourceManager::LoadLogoFile() {
     // 首先尝试加载二进制格式logo
     FILE* bin_test = fopen(LOGO_FILE_PATH, "rb");
@@ -1689,59 +1954,34 @@ bool ImageResourceManager::LoadLogoFile() {
             ESP_LOGE(TAG, "无法打开二进制logo文件: %s", LOGO_FILE_PATH);
             return false;
         }
-        
-        // 获取文件大小
+
+        // 获取文件大小（用于快速判断是否为原始RGB565）
         fseek(f, 0, SEEK_END);
         long logo_file_size = ftell(f);
         fseek(f, 0, SEEK_SET);
-        
-#if DEBUG_IMAGE_FILES
-        // 添加调试信息
-        uint8_t debug_bytes[16];
-        size_t debug_read = fread(debug_bytes, 1, 16, f);
-        ESP_LOGI(TAG, "调试logo文件 %s (大小:%ld字节):", LOGO_FILE_PATH, logo_file_size);
-        ESP_LOGI(TAG, "前16字节: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", 
-                 debug_bytes[0], debug_bytes[1], debug_bytes[2], debug_bytes[3],
-                 debug_bytes[4], debug_bytes[5], debug_bytes[6], debug_bytes[7],
-                 debug_bytes[8], debug_bytes[9], debug_bytes[10], debug_bytes[11],
-                 debug_bytes[12], debug_bytes[13], debug_bytes[14], debug_bytes[15]);
-        
-        // 检查是否为原始RGB数据
-        bool looks_like_raw_logo = true;
-        if (debug_read >= 4 && debug_bytes[0] == 0x47 && debug_bytes[1] == 0x4D && 
-            debug_bytes[2] == 0x49 && debug_bytes[3] == 0x42) {
-            looks_like_raw_logo = false;
-        }
-        
-        if (looks_like_raw_logo) {
-            ESP_LOGW(TAG, "logo文件看起来像原始RGB数据，直接加载");
-            fclose(f);
-            
-            // 直接作为原始数据加载
-            FILE* raw_f = fopen(LOGO_FILE_PATH, "rb");
-            if (raw_f) {
-                logo_data_ = (uint8_t*)malloc(logo_file_size);
-                if (logo_data_) {
-                    size_t read_size = fread(logo_data_, 1, logo_file_size, raw_f);
-                    fclose(raw_f);
-                    if (read_size == logo_file_size) {
-                        ESP_LOGI(TAG, "成功加载原始logo数据: 大小 %ld 字节", logo_file_size);
-                        return true;
-                    } else {
-                        free(logo_data_);
-                        logo_data_ = nullptr;
-                    }
-                } else {
-                    fclose(raw_f);
-                }
+
+        // 如果大小为标准RGB565尺寸(240x240x2=115200)，按原始数据加载
+        const size_t std_logo_size = 240 * 240 * 2;
+        if ((size_t)logo_file_size == std_logo_size) {
+            logo_data_ = (uint8_t*)malloc(std_logo_size);
+            if (!logo_data_) {
+                ESP_LOGE(TAG, "logo数据内存分配失败");
+                fclose(f);
+                return false;
             }
-            ESP_LOGE(TAG, "加载原始logo数据失败");
-            return false;
+            size_t read_size = fread(logo_data_, 1, std_logo_size, f);
+            fclose(f);
+            if (read_size != std_logo_size) {
+                ESP_LOGE(TAG, "读取logo原始数据失败");
+                free(logo_data_);
+                logo_data_ = nullptr;
+                return false;
+            }
+            ESP_LOGI(TAG, "成功加载原始logo数据: 大小 %zu 字节", std_logo_size);
+            return true;
         }
         
-        // 重置文件指针
-        fseek(f, 0, SEEK_SET);
-#endif
+        // 非原始尺寸，按BIMG头解析
         
         // 读取文件头
         BinaryImageHeader header;
@@ -2527,6 +2767,8 @@ esp_err_t ImageResourceManager::DownloadImagesWithUrls(const std::vector<std::st
         
         ESP_LOGI(TAG, "所有二进制动画图片文件下载完成");
         ExitDownloadMode();  // 退出下载模式
+        ESP_LOGI(TAG, "打包完成，系统即将重启以使用优化后的资源");
+        esp_restart();
         return ESP_OK;
     }
     
@@ -2626,6 +2868,8 @@ esp_err_t ImageResourceManager::DownloadLogoWithUrl(const std::string& url) {
     
     ESP_LOGI(TAG, "logo文件下载完成");
     ExitDownloadMode();  // 退出下载模式
+    ESP_LOGI(TAG, "打包完成，系统即将重启以使用优化后的资源");
+    esp_restart();
     return ESP_OK;
 }
 
@@ -2664,9 +2908,42 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
         ESP_LOGW(TAG, "不满足API请求条件，跳过服务器资源检查");
     }
     
-    // 如果都不需要更新，直接返回
+    // 如果都不需要更新，自动构建打包文件以提升下次冷启动速度，然后返回
     if (!need_update_animations && !need_update_logo) {
         ESP_LOGI(TAG, "所有资源都是最新版本，无需更新");
+
+        // 检测 packed 文件是否就绪（仅单文件）
+        bool packed_ready = false;
+        struct stat st;
+        const size_t frame_size = 240 * 240 * 2;
+        const size_t expected_packed_size = frame_size * MAX_IMAGE_FILES;
+        if (stat(PACKED_FILE_PATH, &st) == 0 && (size_t)st.st_size == expected_packed_size) {
+            packed_ready = true;
+        }
+        // 分片检测已移除（仅保留单文件）
+
+        if (!packed_ready) {
+            ESP_LOGI(TAG, "打包文件不存在或尺寸不匹配，开始构建: %s", PACKED_FILE_PATH);
+
+            // 在无需更新但需要打包的路径，也临时进入下载模式，减少写入重试
+            EnterDownloadMode();
+
+            // 优先尝试单文件构建（使用稳定的构建优化技术）
+            bool build_success = BuildPackedImages();
+
+            ExitDownloadMode();
+
+            if (build_success) {
+                ESP_LOGI(TAG, "已生成单文件打包文件，下次启动将走极速加载");
+                ESP_LOGI(TAG, "打包完成，系统即将重启以使用优化后的资源");
+                esp_restart();
+            } else {
+                ESP_LOGW(TAG, "单文件打包构建失败（可能文件缺失或空间不足）");
+            }
+        } else {
+            ESP_LOGI(TAG, "打包文件已就绪，无需重建");
+        }
+
         return ESP_ERR_NOT_FOUND;
     }
     
@@ -2818,6 +3095,12 @@ bool ImageResourceManager::DeleteExistingAnimationFiles() {
     }
     
     ESP_LOGI(TAG, "开始删除现有的动画图片文件...");
+
+    // 先删除旧的打包文件，避免后续加载命中旧包
+    if (unlink(PACKED_FILE_PATH) == 0) {
+        ESP_LOGI(TAG, "已删除旧打包文件: %s", PACKED_FILE_PATH);
+    }
+    // 分片文件清理已移除（仅保留单文件）
     
     // 通知开始删除
     if (progress_callback_) {
@@ -3231,5 +3514,203 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
         preload_progress_callback_(loaded_count, total_images, nullptr);
     }
     
+    return loaded_count > 0 ? ESP_OK : ESP_FAIL;
+}
+
+// 新增：静默预载与并发控制实现
+esp_err_t ImageResourceManager::PreloadRemainingImagesSilent(unsigned long time_budget_ms) {
+    return PreloadRemainingImagesImpl(true, time_budget_ms);
+}
+
+void ImageResourceManager::CancelPreload() {
+    cancel_preload_.store(true);
+}
+
+bool ImageResourceManager::IsPreloading() const {
+    return is_preloading_.load();
+}
+
+bool ImageResourceManager::WaitForPreloadToFinish(unsigned long timeout_ms) {
+    TickType_t start = xTaskGetTickCount();
+    TickType_t budget = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
+    while (IsPreloading()) {
+        // 等待预载完成，轻微让步，避免忙等
+        vTaskDelay(pdMS_TO_TICKS(5));
+        if (budget != 0 && (xTaskGetTickCount() - start) >= budget) {
+            return false;
+        }
+    }
+    return true;
+}
+
+esp_err_t ImageResourceManager::PreloadRemainingImagesImpl(bool silent, unsigned long time_budget_ms) {
+    if (!has_valid_images_ || image_array_.empty()) {
+        if (!silent) {
+            ESP_LOGW(TAG, "没有有效的图片资源，跳过预加载");
+        }
+        return ESP_FAIL;
+    }
+
+    if (is_preloading_.load()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    is_preloading_.store(true);
+    cancel_preload_.store(false);
+
+    size_t free_heap = esp_get_free_heap_size();
+    if (!silent) {
+        ESP_LOGI(TAG, "开始预加载剩余图片，当前可用内存: %u字节", (unsigned int)free_heap);
+    } else {
+        ESP_LOGI(TAG, "静默预载开始: 总图片数=%d", (int)image_array_.size());
+    }
+
+    if (free_heap < 500000) {
+        if (!silent) {
+            ESP_LOGW(TAG, "内存不足，跳过预加载，可用内存: %u字节", (unsigned int)free_heap);
+        }
+        is_preloading_.store(false);
+        return ESP_ERR_NO_MEM;
+    }
+
+    auto& app = Application::GetInstance();
+
+    int loaded_count = 0;
+    int total_images = (int)image_array_.size();
+    TickType_t start_ticks = xTaskGetTickCount();
+    TickType_t budget_ticks = (time_budget_ms == 0) ? 0 : pdMS_TO_TICKS(time_budget_ms);
+
+    if (!silent && preload_progress_callback_) {
+        preload_progress_callback_(0, total_images, "准备预加载图片资源...");
+    }
+
+    for (int i = 1; i <= total_images; i++) {
+        // 取消检查
+        if (cancel_preload_.load()) {
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "预加载取消");
+                preload_progress_callback_(loaded_count, total_images, message);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                preload_progress_callback_(loaded_count, total_images, nullptr);
+            }
+            is_preloading_.store(false);
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        // 时间预算检查
+        if (budget_ticks != 0 && (xTaskGetTickCount() - start_ticks) >= budget_ticks) {
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "预加载时间用尽");
+                preload_progress_callback_(loaded_count, total_images, message);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                preload_progress_callback_(loaded_count, total_images, nullptr);
+            }
+            is_preloading_.store(false);
+            return (loaded_count > 0) ? ESP_OK : ESP_FAIL;
+        }
+
+        // 已加载检查
+        if (IsImageLoaded(i)) {
+            loaded_count++;
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "图片 %d 已加载，跳过...", i);
+                preload_progress_callback_(loaded_count, total_images, message);
+            }
+            continue;
+        }
+
+        // 音频状态检查（静默模式跳过，确保开机阶段不中断）
+        if (!silent) {
+            if (i % 3 == 0) {
+                if (!app.IsAudioQueueEmpty() || app.GetDeviceState() != kDeviceStateIdle) {
+                    ESP_LOGW(TAG, "检测到音频活动，暂停预加载以避免冲突，已加载: %d/%d", loaded_count, total_images);
+                    if (preload_progress_callback_) {
+                        char message[64];
+                        snprintf(message, sizeof(message), "预加载中断：检测到音频活动");
+                        preload_progress_callback_(loaded_count, total_images, message);
+                        vTaskDelay(pdMS_TO_TICKS(200));
+                        preload_progress_callback_(loaded_count, total_images, nullptr);
+                    }
+                    is_preloading_.store(false);
+                    return (loaded_count > 0) ? ESP_OK : ESP_FAIL;
+                }
+            }
+        }
+
+        // 内存检查
+        free_heap = esp_get_free_heap_size();
+        if (free_heap < 200000) {
+            if (!silent) {
+                ESP_LOGW(TAG, "预加载过程中内存不足，停止加载，已加载: %d/%d", loaded_count, total_images);
+            }
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "预加载停止：内存不足");
+                preload_progress_callback_(loaded_count, total_images, message);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                preload_progress_callback_(loaded_count, total_images, nullptr);
+            }
+            is_preloading_.store(false);
+            return (loaded_count > 0) ? ESP_OK : ESP_ERR_NO_MEM;
+        }
+
+        // 开始加载日志/回调
+        if (!silent && preload_progress_callback_) {
+            char message[64];
+            snprintf(message, sizeof(message), "正在预加载图片 %d/%d", i, total_images);
+            preload_progress_callback_(loaded_count, total_images, message);
+        }
+        if (!silent) {
+            ESP_LOGI(TAG, "预加载图片 %d/%d...", i, total_images);
+        }
+
+        if (LoadImageFile(i)) {
+            loaded_count++;
+            if (!silent) {
+                ESP_LOGI(TAG, "预加载图片 %d 成功", i);
+            }
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "图片 %d 预加载完成", i);
+                preload_progress_callback_(loaded_count, total_images, message);
+            }
+        } else {
+            if (!silent) {
+                ESP_LOGE(TAG, "预加载图片 %d 失败", i);
+            }
+            if (!silent && preload_progress_callback_) {
+                char message[64];
+                snprintf(message, sizeof(message), "图片 %d 预加载失败，继续下一张", i);
+                preload_progress_callback_(loaded_count, total_images, message);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    free_heap = esp_get_free_heap_size();
+    if (!silent) {
+        ESP_LOGI(TAG, "预加载完成，成功加载: %d/%d 张图片，剩余内存: %u字节", loaded_count, total_images, (unsigned int)free_heap);
+        ESP_LOGI(TAG, "已启用服务器直传二进制格式优化，下载+预加载速度大幅提升");
+    } else {
+        ESP_LOGI(TAG, "静默预载结束: 已加载=%d/%d, 剩余内存=%u字节", loaded_count, total_images, (unsigned int)free_heap);
+    }
+
+    if (!silent && preload_progress_callback_) {
+        char message[64];
+        if (loaded_count == total_images) {
+            snprintf(message, sizeof(message), "所有图片预加载完成！");
+        } else {
+            snprintf(message, sizeof(message), "预加载完成：%d/%d 张图片", loaded_count, total_images);
+        }
+        preload_progress_callback_(loaded_count, total_images, message);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        preload_progress_callback_(loaded_count, total_images, nullptr);
+    }
+
+    is_preloading_.store(false);
     return loaded_count > 0 ? ESP_OK : ESP_FAIL;
 }

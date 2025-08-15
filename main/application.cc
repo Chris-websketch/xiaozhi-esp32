@@ -18,6 +18,8 @@
 
 #define TAG "Application"
 
+// 开机成功提示音只播放一次
+static bool g_startup_success_sound_played = false;
 
 static const char* const STATE_STRINGS[] = {
     "unknown",
@@ -161,6 +163,11 @@ void Application::CheckNewVersion() {
         SetDeviceState(kDeviceStateIdle);
         display->SetChatMessage("system", "");
         ResetDecoder();
+        // 进入待机后播放开机成功提示音（仅一次）
+        if (!g_startup_success_sound_played) {
+            PlaySound(Lang::Sounds::P3_SUCCESS);
+            g_startup_success_sound_played = true;
+        }
         // 联网成功提示音已移至预热完成后播放
         
         // OTA检查完成，标记为完成状态

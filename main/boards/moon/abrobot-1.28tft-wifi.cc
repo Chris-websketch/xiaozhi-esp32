@@ -1561,6 +1561,8 @@ private:
         if (result != ESP_OK) {
             ESP_LOGE(TAG, "图片资源管理器初始化失败");
         }
+        // 开机阶段同步静默全量加载（不限时，不触发UI遮罩）
+        image_manager.PreloadRemainingImagesSilent(0);
     }
 
     // 初始化电源管理器
@@ -1999,6 +2001,10 @@ private:
             ESP_LOGW(TAG, "等待超时，强制开始检查图片资源（优化：减少等待时间）");
         }
         
+        // 并发保护：在资源检查前取消并等待预载结束，避免读/删并发
+        image_manager.CancelPreload();
+        image_manager.WaitForPreloadToFinish(1000);
+
         // 一次性检查并更新所有资源（动画图片和logo）
         esp_err_t all_resources_result = image_manager.CheckAndUpdateAllResources(API_URL, VERSION_URL);
         
@@ -2039,38 +2045,7 @@ private:
             ESP_LOGI(TAG, "所有图片资源已是最新版本，无需重启");
         }
         
-        // 优化：并行启动预加载任务，不阻塞主流程
-        ESP_LOGI(TAG, "系统初始化完成，启动异步预加载任务...");
-        
-        // 创建异步预加载任务，不阻塞主流程
-        xTaskCreate([](void* param) {
-            ImageResourceManager* img_mgr = static_cast<ImageResourceManager*>(param);
-            
-            // 简化音频系统检查，减少等待时间
-            auto& app_preload = Application::GetInstance();
-            int preload_wait = 0;
-            while (preload_wait < 2) { // 从3秒减少到2秒
-                if (app_preload.GetDeviceState() == kDeviceStateIdle && app_preload.IsAudioQueueEmpty()) {
-                    break;
-                }
-                ESP_LOGI(TAG, "优化预加载：快速检查音频状态... (%d/2秒)", preload_wait + 1);
-                vTaskDelay(pdMS_TO_TICKS(500));  // 500ms检查间隔
-                preload_wait++;
-            }
-            
-            ESP_LOGI(TAG, "开始异步预加载剩余图片...");
-            esp_err_t preload_result = img_mgr->PreloadRemainingImages();
-            if (preload_result == ESP_OK) {
-                ESP_LOGI(TAG, "图片预加载完成，动画播放将更加流畅");
-            } else if (preload_result == ESP_ERR_NO_MEM) {
-                ESP_LOGW(TAG, "内存不足，跳过图片预加载，将继续使用按需加载策略");
-            } else {
-                ESP_LOGW(TAG, "图片预加载失败，将继续使用按需加载策略");
-            }
-            
-            // 任务完成，删除自己
-            vTaskDelete(NULL);
-        }, "async_preload", 8192, &image_manager, 2, NULL);
+        // 取消播放阶段的异步预加载，采用开机静默全量加载策略
     }
 
     // 启动图片循环显示任务
@@ -2669,12 +2644,14 @@ public:
         InitializeCodecI2c();        // 初始化编解码器I2C总线
         InitializeSpi();             // 初始化SPI总线
         InitializeLcdDisplay();      // 初始化LCD显示器
+        // 延迟1秒点亮背光，避免瞬间强光/等待屏幕就绪
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        GetBacklight()->RestoreBrightness();
         InitializeButtons();         // 初始化按钮
         InitializeIot();             // 初始化IoT设备
         InitializeImageResources();  // 初始化图片资源管理器
         InitializePowerManager();    // 初始化电源管理器
         InitializePowerSaveTimer();  // 初始化3级省电定时器
-        GetBacklight()->RestoreBrightness();  // 恢复背光亮度
         
         // 初始化闹钟监听器
         InitializeAlarmMonitor();

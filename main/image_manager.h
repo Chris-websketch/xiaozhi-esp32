@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <functional>
 #include "esp_err.h"
+#include <atomic>
 
 // 下载策略配置
 #define ENABLE_SERIAL_DOWNLOAD 1  // 启用串行下载，避免并发网络请求
@@ -63,6 +64,14 @@ public:
     // 预加载所有剩余图片（在系统初始化完成后调用）
     esp_err_t PreloadRemainingImages();
     
+    // 静默预载：不触发UI回调，支持时间预算（毫秒；0 表示不限时）
+    esp_err_t PreloadRemainingImagesSilent(unsigned long time_budget_ms);
+
+    // 预载控制：取消、查询与等待结束（毫秒超时；0 表示不等待）
+    void CancelPreload();
+    bool IsPreloading() const;
+    bool WaitForPreloadToFinish(unsigned long timeout_ms);
+    
     // 设置下载进度回调函数
     using ProgressCallback = std::function<void(int current, int total, const char* message)>;
     void SetDownloadProgressCallback(ProgressCallback callback) {
@@ -105,6 +114,8 @@ private:
     void LoadImageData();
     bool LoadImageFile(int image_index);
     bool LoadLogoFile(); // 加载logo文件
+    bool LoadPackedImages(); // 从打包文件一次性加载所有图片
+    bool BuildPackedImages(); // 构建打包文件以加速下次加载
     void EnterDownloadMode(); // 进入下载模式，优化系统资源
     void ExitDownloadMode();  // 退出下载模式，恢复正常状态
     bool DeleteExistingAnimationFiles(); // 删除现有动画图片文件（带进度显示）
@@ -112,6 +123,9 @@ private:
     bool ConvertHFileToBinary(const char* h_filepath, const char* bin_filepath); // 转换.h文件为二进制格式
     bool LoadBinaryImageFile(int image_index); // 从二进制文件加载图片数据
     bool LoadRawImageFile(int image_index, size_t file_size); // 从原始RGB数据文件加载图片
+    
+    // 预载内部实现
+    esp_err_t PreloadRemainingImagesImpl(bool silent, unsigned long time_budget_ms);
     
     // 成员变量
     bool mounted_;           // 分区是否已挂载
@@ -131,4 +145,8 @@ private:
     
     // 预加载进度回调函数
     ProgressCallback preload_progress_callback_;
+
+    // 预载状态与控制
+    std::atomic<bool> cancel_preload_{false};
+    std::atomic<bool> is_preloading_{false};
 };
