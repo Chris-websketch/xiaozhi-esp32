@@ -9,6 +9,7 @@
 #include "font_awesome_symbols.h"
 #include "iot/thing_manager.h"
 #include "assets/lang_config.h"
+#include "notifications/mqtt_notifier.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -173,6 +174,10 @@ void Application::CheckNewVersion() {
         // OTA检查完成，标记为完成状态
         ESP_LOGI(TAG, "OTA check completed, triggering image resource check");
         ota_check_completed_ = true;
+        // OTA 更新可能刷新了 MQTT 配置，尝试通知组件重连
+        if (notifier_) {
+            notifier_->ReconnectIfSettingsChanged();
+        }
         if (image_resource_callback_) {
             Schedule(image_resource_callback_);
         }
@@ -509,6 +514,13 @@ void Application::Start() {
     });
     protocol_->Start();
 
+    // 启动 MQTT 通知组件（如果配置可用），仅用于服务端主动推送消息
+    notifier_ = std::make_unique<MqttNotifier>();
+    notifier_->OnMessage([this](const cJSON* root){
+        OnMqttNotification(root);
+    });
+    notifier_->Start();
+
     // Check for new firmware version or get the MQTT broker address
     xTaskCreate([](void* arg) {
         Application* app = (Application*)arg;
@@ -592,6 +604,68 @@ void Application::Start() {
     alarm_m_ = new AlarmManager();
     // alarm_m_->SetAlarm(10, "alarm1");
 #endif
+}
+
+void Application::OnMqttNotification(const cJSON* root) {
+    auto type = cJSON_GetObjectItem(root, "type");
+    if (!type || !cJSON_IsString(type)) {
+        ESP_LOGW(TAG, "MQTT notify: missing type");
+        return;
+    }
+    // 系统控制：通过MQTT触发设备动作（如重启）
+    if (strcmp(type->valuestring, "system") == 0) {
+        auto action = cJSON_GetObjectItem(root, "action");
+        if (action && cJSON_IsString(action)) {
+            if (strcmp(action->valuestring, "reboot") == 0) {
+                int delay_ms = 1000;
+                auto delay_item = cJSON_GetObjectItem(root, "delay_ms");
+                if (delay_item && cJSON_IsNumber(delay_item)) {
+                    delay_ms = delay_item->valueint;
+                    if (delay_ms < 0) delay_ms = 0;
+                    if (delay_ms > 10000) delay_ms = 10000; // 保护：最大10秒
+                }
+                ESP_LOGW(TAG, "MQTT system action: reboot in %d ms", delay_ms);
+                auto display = Board::GetInstance().GetDisplay();
+                if (display) {
+                    display->ShowNotification("即将重启...", 1000);
+                }
+                Schedule([this, delay_ms]() {
+                    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+                    Reboot();
+                });
+                return;
+            }
+        }
+        return;
+    }
+    if (strcmp(type->valuestring, "notify") == 0) {
+        auto title = cJSON_GetObjectItem(root, "title");
+        auto body = cJSON_GetObjectItem(root, "body");
+        std::string message;
+        if (title && cJSON_IsString(title)) {
+            message += title->valuestring;
+        }
+        if (body && cJSON_IsString(body)) {
+            if (!message.empty()) message += "\n";
+            message += body->valuestring;
+        }
+        if (!message.empty()) {
+            auto display = Board::GetInstance().GetDisplay();
+            display->ShowNotification(message.c_str(), 10000);
+        }
+        return;
+    }
+    if (strcmp(type->valuestring, "iot") == 0) {
+        auto commands = cJSON_GetObjectItem(root, "commands");
+        if (commands != NULL) {
+            auto& thing_manager = iot::ThingManager::GetInstance();
+            for (int i = 0; i < cJSON_GetArraySize(commands); ++i) {
+                auto command = cJSON_GetArrayItem(commands, i);
+                thing_manager.Invoke(command);
+            }
+        }
+        return;
+    }
 }
 
 void Application::OnClockTimer() {

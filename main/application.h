@@ -96,6 +96,9 @@ public:
     // 发送闹钟消息的辅助函数
     void SendAlarmMessage();
 
+    // MQTT 通知回调处理
+    void OnMqttNotification(const cJSON* root);
+
     // **新增：强力音频保护机制**
     bool IsAudioActivityHigh() const;
     bool IsAudioProcessingCritical() const;
@@ -186,6 +189,9 @@ private:
     void HandleProtocolTimeout();
     void SetListeningMode(ListeningMode mode);
     void AudioLoop();
+
+    // 轻量 MQTT 通知组件
+    std::unique_ptr<class MqttNotifier> notifier_;
 };
 
 #endif // _APPLICATION_H_

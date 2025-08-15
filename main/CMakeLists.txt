@@ -20,6 +20,7 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "main.cc"
             "ml307_tcp_transport.cc"
             "image_manager.cc"
+            "notifications/mqtt_notifier.cc"
             )
 
 set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing")
