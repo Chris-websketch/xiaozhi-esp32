@@ -6,6 +6,8 @@
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
 #include <time.h>
+#include <esp_app_desc.h>
+#include "system_info.h"
 #include "iot/thing_manager.h"
 
 static const char* TAG = "MqttNotifier";
@@ -126,6 +128,15 @@ bool MqttNotifier::ConnectInternal() {
 					cJSON_AddStringToObject(root, "type", "telemetry");
 					cJSON_AddBoolToObject(root, "online", true);
 					cJSON_AddNumberToObject(root, "ts", (double)time(NULL));
+
+					// device info
+					auto app_desc = esp_app_get_description();
+					cJSON_AddStringToObject(root, "device_name", BOARD_NAME);
+					if (app_desc) {
+						cJSON_AddStringToObject(root, "ota_version", app_desc->version);
+					}
+					cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
+					cJSON_AddStringToObject(root, "client_id", self->client_id_.c_str());
 
 					// battery
 					int battery_level = -1; bool charging = false; bool discharging = false;

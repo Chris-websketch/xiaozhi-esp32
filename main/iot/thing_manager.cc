@@ -31,6 +31,10 @@ bool ThingManager::GetStatesJson(std::string& json, bool delta) {
     // 枚举thing，获取每个thing的state，如果发生变化，则更新，保存到last_states_
     // 如果delta为true，则只返回变化的部分
     for (auto& thing : things_) {
+        // 过滤不需要上报的 IoT 设备：RotateDisplay
+        if (thing->name() == "RotateDisplay") {
+            continue;
+        }
         std::string state = thing->GetStateJson();
         if (delta) {
             // 如果delta为true，则只返回变化的部分

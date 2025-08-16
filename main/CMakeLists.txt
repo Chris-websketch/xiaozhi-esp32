@@ -148,6 +148,10 @@ elseif(CONFIG_BOARD_TYPE_ESP32_CGC)
     set(BOARD_TYPE "esp32-cgc")
 elseif(CONFIG_BOARD_TYPE_ABROBOT_1_28TFT_WIFI)
     set(BOARD_TYPE "moon")
+    #如果命令行中未提供，则为该板设置默认的 BOARD_NAME。
+    if(NOT BOARD_NAME)
+        set(BOARD_NAME "xiaoqiao-3.0")
+    endif()
 endif()
 
 file(GLOB BOARD_SOURCES

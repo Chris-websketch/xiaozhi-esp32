@@ -131,6 +131,10 @@ https://github.com/eclipse-paho/paho.mqtt.java
 - type：固定为 "telemetry"
 - online：布尔值，当前是否在线（恒为 true）
 - ts：整数，Unix 时间戳（秒）
+- device_name：字符串，设备名称（编译期板卡名）
+- ota_version：字符串，当前固件版本
+- mac：字符串，设备 MAC 地址（格式：xx:xx:xx:xx:xx:xx）
+- client_id：字符串，MQTT 客户端 ID
 - battery：电池信息对象
   - level：整数，电量百分比
   - charging：布尔值，是否在充电
@@ -153,7 +157,7 @@ https://github.com/eclipse-paho/paho.mqtt.java
 
 示例：
 ```json
-{"type":"telemetry","online":true,"ts":1755272693,"battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"}}}
+{"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"}}}
 ```
 
 ## 指令执行结果上报（ACK）
