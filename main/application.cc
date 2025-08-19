@@ -301,8 +301,9 @@ void Application::ToggleChatState() {
             AbortSpeaking(kAbortReasonNone);
         });
     } else if (device_state_ == kDeviceStateListening) {
+        // 快速停止：先切到 idle，并在后台优雅关闭通道，避免前台卡顿且减少后续断开噪声
         Schedule([this]() {
-            protocol_->CloseAudioChannel();
+            StopListeningFast(true);
         });
     }
 }
@@ -352,6 +353,26 @@ void Application::StopListening() {
             SetDeviceState(kDeviceStateIdle);
         }
     });
+}
+
+// 立即结束监听，先切 UI 再异步关闭连接，避免优雅关闭的同步等待带来的卡顿
+void Application::StopListeningFast(bool close_channel_after) {
+    // 仅在 Listening 状态下执行快速停止
+    if (device_state_ == kDeviceStateListening) {
+        // 先通知服务端停止监听，但不等待
+        protocol_->SendStopListening();
+        // 立即切换到 Idle，保证 UI 立刻反馈
+        SetDeviceState(kDeviceStateIdle);
+
+        if (close_channel_after) {
+            // 可选：后台关闭通道，避免阻塞主线程
+            background_task_->Schedule([this]() {
+                if (protocol_) {
+                    protocol_->CloseAudioChannel();
+                }
+            });
+        }
+    }
 }
 
 void Application::Start() {
@@ -1106,8 +1127,10 @@ void Application::SetDeviceState(DeviceState state) {
         {
             ESP_LOGI(TAG, "设备进入 idle 状态，调用 display->SetIdle(true)");
             display->SetIdle(true);
+            // 清理聊天内容，但保留状态栏信息（显示待命）
             display->SetStatus(Lang::Strings::STANDBY);
             display->SetEmotion("neutral");
+            display->SetChatMessage("system", "");
 #if CONFIG_USE_AUDIO_PROCESSOR
             audio_processor_.Stop();
             // 优化：只在从连接或升级状态切换到idle时才强制重置缓冲区

@@ -53,7 +53,7 @@ bool WebsocketProtocol::IsAudioChannelOpened() const {
 }
 
 void WebsocketProtocol::CloseAudioChannel() {
-    ESP_LOGI(TAG, "🔒 开始优雅关闭WebSocket音频通道...");
+    ESP_LOGD(TAG, "🔒 开始优雅关闭WebSocket音频通道...");
     
     if (websocket_ != nullptr) {
         // 1. 先发送goodbye消息通知服务器
@@ -63,11 +63,11 @@ void WebsocketProtocol::CloseAudioChannel() {
             goodbye_message += "\"type\":\"goodbye\"";
             goodbye_message += "}";
             
-            ESP_LOGI(TAG, "📤 发送WebSocket Goodbye消息");
+            ESP_LOGD(TAG, "📤 发送WebSocket Goodbye消息");
             websocket_->Send(goodbye_message);
             
             // 给服务器更多时间处理goodbye消息并关闭连接
-            ESP_LOGI(TAG, "⏳ 等待服务器处理goodbye消息...");
+            ESP_LOGD(TAG, "⏳ 等待服务器处理goodbye消息...");
             int wait_attempts = 0;
             const int max_wait_attempts = 5; // 最多等待500ms
             
@@ -78,19 +78,19 @@ void WebsocketProtocol::CloseAudioChannel() {
             }
             
             if (websocket_->IsConnected()) {
-                ESP_LOGW(TAG, "服务器未主动断开连接，客户端将强制关闭");
+                ESP_LOGD(TAG, "服务器未主动断开连接，客户端将强制关闭");
             } else {
-                ESP_LOGI(TAG, "✅ 服务器已响应goodbye消息并关闭连接");
+                ESP_LOGD(TAG, "✅ 服务器已响应goodbye消息并关闭连接");
             }
         }
         
         // 2. 删除WebSocket对象
-        ESP_LOGI(TAG, "🔗 关闭WebSocket连接");
+        ESP_LOGD(TAG, "🔗 关闭WebSocket连接");
         delete websocket_;
         websocket_ = nullptr;
     }
     
-    ESP_LOGI(TAG, "✅ WebSocket音频通道已安全关闭");
+    ESP_LOGD(TAG, "✅ WebSocket音频通道已安全关闭");
 }
 
 bool WebsocketProtocol::OpenAudioChannel() {

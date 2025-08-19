@@ -18,3 +18,9 @@ shaolu_log.txt
 templates/
 instances/
 __pycache__/
+.idea/
+.kiro/
+.github/
+.cursor/
+.config/
+.augment/
