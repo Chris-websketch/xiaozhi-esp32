@@ -126,35 +126,95 @@ bool ConfigManager::save_config(const std::string& config_path) const {
 bool ConfigManager::validate_config() const {
     // 验证网络配置
     if (config_.network.timeout_ms < 1000 || config_.network.timeout_ms > 120000) {
-        ESP_LOGE(TAG, "网络超时时间无效: %" PRIu32, config_.network.timeout_ms);
+        ESP_LOGE(TAG, "网络超时时间无效: %" PRIu32 " (范围: 1000-120000ms)", config_.network.timeout_ms);
         return false;
     }
     
     if (config_.network.retry_count > 10) {
-        ESP_LOGE(TAG, "重试次数过多: %" PRIu32, config_.network.retry_count);
+        ESP_LOGE(TAG, "重试次数过多: %" PRIu32 " (最大: 10)", config_.network.retry_count);
+        return false;
+    }
+    
+    if (config_.network.retry_delay_ms < 100 || config_.network.retry_delay_ms > 30000) {
+        ESP_LOGE(TAG, "重试延迟无效: %" PRIu32 " (范围: 100-30000ms)", config_.network.retry_delay_ms);
         return false;
     }
     
     if (config_.network.buffer_size < 1024 || config_.network.buffer_size > 64 * 1024) {
-        ESP_LOGE(TAG, "缓冲区大小无效: %" PRIu32, config_.network.buffer_size);
+        ESP_LOGE(TAG, "缓冲区大小无效: %" PRIu32 " (范围: 1024-65536字节)", config_.network.buffer_size);
+        return false;
+    }
+    
+    if (config_.network.connection_delay_ms > 5000) {
+        ESP_LOGE(TAG, "连接延迟过长: %" PRIu32 " (最大: 5000ms)", config_.network.connection_delay_ms);
         return false;
     }
     
     // 验证内存配置
     if (config_.memory.allocation_threshold < 50 * 1024) {
-        ESP_LOGE(TAG, "内存阈值过低: %" PRIu32, config_.memory.allocation_threshold);
+        ESP_LOGE(TAG, "内存分配阈值过低: %" PRIu32 " (最小: 50KB)", config_.memory.allocation_threshold);
+        return false;
+    }
+    
+    if (config_.memory.download_threshold < config_.memory.allocation_threshold) {
+        ESP_LOGE(TAG, "下载内存阈值不能小于分配阈值: %" PRIu32 " < %" PRIu32, 
+                 config_.memory.download_threshold, config_.memory.allocation_threshold);
+        return false;
+    }
+    
+    if (config_.memory.preload_threshold < config_.memory.download_threshold) {
+        ESP_LOGE(TAG, "预加载内存阈值不能小于下载阈值: %" PRIu32 " < %" PRIu32, 
+                 config_.memory.preload_threshold, config_.memory.download_threshold);
+        return false;
+    }
+    
+    if (config_.memory.buffer_pool_size == 0 || config_.memory.buffer_pool_size > 50) {
+        ESP_LOGE(TAG, "缓冲区池大小无效: %" PRIu32 " (范围: 1-50)", config_.memory.buffer_pool_size);
         return false;
     }
     
     // 验证图片配置
     if (config_.image.max_image_count == 0 || config_.image.max_image_count > 20) {
-        ESP_LOGE(TAG, "图片数量无效: %" PRIu32, config_.image.max_image_count);
+        ESP_LOGE(TAG, "图片数量无效: %" PRIu32 " (范围: 1-20)", config_.image.max_image_count);
+        return false;
+    }
+    
+    if (config_.image.image_width == 0 || config_.image.image_height == 0) {
+        ESP_LOGE(TAG, "图片尺寸无效: %" PRIu32 "x%" PRIu32, config_.image.image_width, config_.image.image_height);
         return false;
     }
     
     uint32_t image_size = config_.get_image_size();
     if (image_size == 0 || image_size > 1024 * 1024) {
-        ESP_LOGE(TAG, "图片尺寸无效: %" PRIu32, image_size);
+        ESP_LOGE(TAG, "单张图片大小无效: %" PRIu32 " (最大: 1MB)", image_size);
+        return false;
+    }
+    
+    // 验证下载模式配置
+    if (config_.download_mode.gc_interval_ms < 100 || config_.download_mode.gc_interval_ms > 10000) {
+        ESP_LOGE(TAG, "垃圾回收间隔无效: %" PRIu32 " (范围: 100-10000ms)", config_.download_mode.gc_interval_ms);
+        return false;
+    }
+    
+    if (config_.download_mode.network_stabilize_ms > 5000) {
+        ESP_LOGE(TAG, "网络稳定等待时间过长: %" PRIu32 " (最大: 5000ms)", config_.download_mode.network_stabilize_ms);
+        return false;
+    }
+    
+    // 验证预加载配置
+    if (config_.preload.check_interval == 0 || config_.preload.check_interval > 10) {
+        ESP_LOGE(TAG, "预加载检查间隔无效: %" PRIu32 " (范围: 1-10)", config_.preload.check_interval);
+        return false;
+    }
+    
+    if (config_.preload.load_delay_ms > 1000) {
+        ESP_LOGE(TAG, "预加载延迟过长: %" PRIu32 " (最大: 1000ms)", config_.preload.load_delay_ms);
+        return false;
+    }
+    
+    // 验证文件系统配置
+    if (config_.filesystem.max_files == 0 || config_.filesystem.max_files > 100) {
+        ESP_LOGE(TAG, "最大文件数无效: %" PRIu32 " (范围: 1-100)", config_.filesystem.max_files);
         return false;
     }
     

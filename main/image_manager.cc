@@ -33,7 +33,6 @@ using ImageResource::ResourceConfig;
 #define LOGO_FILE_PATH_H "/resources/images/logo.h"
 #define PACKED_FILE_PATH "/resources/images/packed.rgb"
 #define MAX_IMAGE_FILES 9   // 固定值：API必须返回9个动态图片，本地图片数量不足9个时会触发重新下载
-#define MAX_DOWNLOAD_RETRIES 3  // 设置合理的重试次数为3次
 
 // 添加调试开关，可以通过配置启用（量产关闭以提升性能）
 #define DEBUG_IMAGE_FILES 0
@@ -562,8 +561,8 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
     size_t free_heap = esp_get_free_heap_size();
     ESP_LOGI(TAG, "下载开始前可用内存: %u字节", (unsigned int)free_heap);
     
-    if (free_heap < 300000) { // 降低内存需求到300KB
-        ESP_LOGE(TAG, "内存不足，无法开始下载，可用内存: %u字节", (unsigned int)free_heap);
+    if (free_heap < config_->memory.allocation_threshold) { // 使用配置的内存阈值
+        ESP_LOGE(TAG, "内存不足，无法开始下载，可用内存: %u字节，需要: %lu字节", (unsigned int)free_heap, config_->memory.allocation_threshold);
         if (progress_callback_) {
             progress_callback_(0, 100, "内存不足，无法开始下载");
         }
@@ -629,7 +628,7 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
                 // 计算当前总体进度（失败也算作已处理）
                 int current_total_progress = ((int)i + 1) * 100 / (int)server_dynamic_urls_.size();
                 progress_callback_(current_total_progress, 100, message);
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                vTaskDelay(pdMS_TO_TICKS(config_->network.retry_delay_ms));
             }
         } else {
             ESP_LOGI(TAG, "文件 %zu/%zu 下载完成", i + 1, server_dynamic_urls_.size());
@@ -684,7 +683,7 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
             progress_callback_(100, 100, "二进制动画图片资源已就绪");
             
             // 延迟一段时间后隐藏进度条
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(config_->network.connection_delay_ms * 5));
             progress_callback_(100, 100, nullptr);
         }
         
@@ -805,7 +804,7 @@ esp_err_t ImageResourceManager::DownloadLogo(const char* api_url) {
         progress_callback_(100, 100, "logo资源已就绪");
         
         // 延迟一段时间后隐藏进度条
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(config_->network.connection_delay_ms * 5));
         progress_callback_(100, 100, nullptr);
     }
     
@@ -1158,9 +1157,9 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
                 progress_callback_(0, 100, message);
             }
             
-            ESP_LOGW(TAG, "下载失败，将在%d秒后重试 (第%d次重试)", 3 * retry_count, retry_count);
-            // 减少重试延时，提高整体下载速度
-            vTaskDelay(pdMS_TO_TICKS(3000 * retry_count));  // 减少到3秒基础延时
+            ESP_LOGW(TAG, "下载失败，将在%lums后重试 (第%d次重试)", config_->network.retry_delay_ms * retry_count, retry_count);
+            // 使用配置的重试延时
+            vTaskDelay(pdMS_TO_TICKS(config_->network.retry_delay_ms * retry_count));  // 使用配置的基础重试延时
         }
     }
     
@@ -2730,7 +2729,7 @@ esp_err_t ImageResourceManager::DownloadImagesWithUrls(const std::vector<std::st
         }
         
         // 在下载模式下适当增加文件间等待时间，确保网络连接稳定
-        vTaskDelay(pdMS_TO_TICKS(500));  // 减少到500ms，大幅提升下载速度
+        vTaskDelay(pdMS_TO_TICKS(config_->network.connection_delay_ms));  // 使用配置的连接延迟
     }
     
     // 如果至少有一半文件下载成功，认为是部分成功
@@ -3404,8 +3403,8 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
     size_t free_heap = esp_get_free_heap_size();
     ESP_LOGI(TAG, "开始预加载剩余图片，当前可用内存: %u字节", (unsigned int)free_heap);
     
-    if (free_heap < 500000) { // 从1MB减少到500KB，降低内存门槛
-        ESP_LOGW(TAG, "内存不足，跳过预加载，可用内存: %u字节", (unsigned int)free_heap);
+    if (free_heap < config_->memory.preload_threshold) { // 使用配置的预加载内存阈值
+        ESP_LOGW(TAG, "内存不足，跳过预加载，可用内存: %u字节，需要: %lu字节", (unsigned int)free_heap, config_->memory.preload_threshold);
         return ESP_ERR_NO_MEM;
     }
     
@@ -3498,8 +3497,8 @@ esp_err_t ImageResourceManager::PreloadRemainingImages() {
             }
         }
         
-        // 优化：进一步减少延迟时间，加快预加载速度
-        vTaskDelay(pdMS_TO_TICKS(10)); // 从20ms减少到10ms
+        // 使用配置的预加载延迟时间
+        vTaskDelay(pdMS_TO_TICKS(config_->preload.load_delay_ms)); // 使用配置的预加载延迟
     }
     
     free_heap = esp_get_free_heap_size();

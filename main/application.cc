@@ -11,6 +11,7 @@
 #include "assets/lang_config.h"
 #include "notifications/mqtt_notifier.h"
 #include "memory/memory_manager.h"
+#include "config/resource_config.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -22,6 +23,8 @@
 
 using ImageResource::MemoryManager;
 using ImageResource::ImageBufferPool;
+using ImageResource::ConfigManager;
+using ImageResource::ResourceConfig;
 
 // 开机成功提示音只播放一次
 static bool g_startup_success_sound_played = false;
@@ -74,14 +77,15 @@ Application::~Application() {
 }
 
 void Application::CheckNewVersion() {
-    const int MAX_RETRY = 10;
+    // 获取配置管理器实例
+    const auto& config = ConfigManager::GetInstance().get_config();
     int retry_count = 0;
 
     while (true) {
         auto display = Board::GetInstance().GetDisplay();
         if (!ota_.CheckVersion()) {
             retry_count++;
-            if (retry_count >= MAX_RETRY) {
+            if (retry_count >= static_cast<int>(config.network.retry_count)) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
                 // 即使OTA检查失败，也标记为完成，让图片资源检查可以继续
                 ota_check_completed_ = true;
@@ -90,7 +94,7 @@ void Application::CheckNewVersion() {
                 }
                 return;
             }
-            ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", 60, retry_count, MAX_RETRY);
+            ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%lu)", 60, retry_count, config.network.retry_count);
             vTaskDelay(pdMS_TO_TICKS(60000));
             continue;
         }
