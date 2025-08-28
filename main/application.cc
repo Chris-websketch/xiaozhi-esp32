@@ -14,6 +14,7 @@
 #include "config/resource_config.h"
 
 #include <cstring>
+#include <cmath>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -832,16 +833,47 @@ void Application::OnClockTimer() {
         int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
         ESP_LOGI(TAG, "Free internal: %u minimal internal: %u", free_sram, min_free_sram);
 
-        // 新的详细内存监控
-        MemoryManager::GetInstance().log_memory_status();
-        ImageBufferPool::GetInstance().log_pool_status();
+        // 获取当前内存状态和缓冲区池状态
+        auto current_memory_status = MemoryManager::GetInstance().get_memory_status();
+        auto& pool = ImageBufferPool::GetInstance();
+        float current_pool_utilization = pool.get_pool_utilization_percent();
+        bool current_pool_pressure = pool.is_pool_under_pressure();
         
-        // 多级内存状态检测
-        auto memory_status = MemoryManager::GetInstance().get_memory_status();
-        if (memory_status == ImageResource::MemoryStatus::CRITICAL) {
-            ESP_LOGW(TAG, "🆘 内存处于危险状态，建议释放资源！");
-        } else if (memory_status == ImageResource::MemoryStatus::WARNING) {
-            ESP_LOGW(TAG, "⚠️  内存接近警告水平，请注意内存使用");
+        // 检查内存状态是否发生变化
+        bool memory_status_changed = (current_memory_status != last_memory_status_);
+        
+        // 检查缓冲区池状态是否发生显著变化（使用率变化超过10%或压力状态改变）
+        bool pool_status_changed = (std::abs(current_pool_utilization - last_pool_utilization_) > 10.0f) ||
+                                  (current_pool_pressure != last_pool_pressure_state_);
+        
+        // 仅在状态发生变化时打印详细日志
+        if (memory_status_changed) {
+            ESP_LOGI(TAG, "内存状态发生变化: %s -> %s", 
+                    (last_memory_status_ == ImageResource::MemoryStatus::GOOD ? "正常" : 
+                     last_memory_status_ == ImageResource::MemoryStatus::WARNING ? "警告" : "危险"),
+                    (current_memory_status == ImageResource::MemoryStatus::GOOD ? "正常" : 
+                     current_memory_status == ImageResource::MemoryStatus::WARNING ? "警告" : "危险"));
+            MemoryManager::GetInstance().log_memory_status();
+            last_memory_status_ = current_memory_status;
+        }
+        
+        if (pool_status_changed) {
+            ESP_LOGI(TAG, "缓冲区池状态发生变化: 使用率 %.1f%% -> %.1f%%, 压力状态 %s -> %s",
+                    last_pool_utilization_, current_pool_utilization,
+                    last_pool_pressure_state_ ? "高压力" : "正常",
+                    current_pool_pressure ? "高压力" : "正常");
+            pool.log_pool_status();
+            last_pool_utilization_ = current_pool_utilization;
+            last_pool_pressure_state_ = current_pool_pressure;
+        }
+        
+        // 多级内存状态检测（仅在状态变化时输出警告）
+        if (memory_status_changed) {
+            if (current_memory_status == ImageResource::MemoryStatus::CRITICAL) {
+                ESP_LOGW(TAG, "🆘 内存处于危险状态，建议释放资源！");
+            } else if (current_memory_status == ImageResource::MemoryStatus::WARNING) {
+                ESP_LOGW(TAG, "⚠️  内存接近警告水平，请注意内存使用");
+            }
         }
 
         // If we have synchronized server time, set the status to clock "HH:MM" if the device is idle

@@ -17,6 +17,7 @@
 #include "protocol.h"
 #include "ota.h"
 #include "background_task.h"
+#include "memory/memory_manager.h"
 #if CONFIG_USE_ALARM
 //test
 #include "AlarmClock.h"
@@ -97,6 +98,11 @@ public:
 
     // 发送闹钟消息的辅助函数
     void SendAlarmMessage();
+
+    // 内存状态跟踪变量（用于减少重复日志输出）
+    mutable ImageResource::MemoryStatus last_memory_status_ = ImageResource::MemoryStatus::GOOD;
+    mutable float last_pool_utilization_ = 0.0f;
+    mutable bool last_pool_pressure_state_ = false;
 
     // MQTT 通知回调处理
     void OnMqttNotification(const cJSON* root);
