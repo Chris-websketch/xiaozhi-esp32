@@ -16,8 +16,13 @@
 #include <esp_ota_ops.h>      // 新增：包含OTA操作头文件
 #include "application.h"      // 新增：包含应用程序头文件
 #include <esp_system.h>        // 新增：用于esp_restart重启
+#include "memory/memory_manager.h"  // 新增：内存监控功能
 
 #define TAG "ImageResManager"
+
+// 使用内存监控功能
+using ImageResource::MemoryManager;
+using ImageResource::ImageBufferPool;
 #define IMAGE_URL_CACHE_FILE "/resources/image_urls.json"  // 修改：图片URL缓存文件
 #define LOGO_URL_CACHE_FILE "/resources/logo_url.json"     // 修改：logo URL缓存文件
 #define IMAGE_BASE_PATH "/resources/images/"
@@ -3644,7 +3649,11 @@ esp_err_t ImageResourceManager::PreloadRemainingImagesImpl(bool silent, unsigned
         free_heap = esp_get_free_heap_size();
         if (free_heap < 200000) {
             if (!silent) {
-                ESP_LOGW(TAG, "预加载过程中内存不足，停止加载，已加载: %d/%d", loaded_count, total_images);
+                ESP_LOGW(TAG, "⚠️  预加载过程中内存不足，停止加载，已加载: %d/%d", loaded_count, total_images);
+                // 内存不足时的详细监控
+                ESP_LOGW(TAG, "=== 🆘 内存不足详情 ===");
+                MemoryManager::GetInstance().log_memory_status();
+                ImageBufferPool::GetInstance().log_pool_status();
             }
             if (!silent && preload_progress_callback_) {
                 char message[64];

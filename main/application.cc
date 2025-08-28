@@ -10,6 +10,7 @@
 #include "iot/thing_manager.h"
 #include "assets/lang_config.h"
 #include "notifications/mqtt_notifier.h"
+#include "memory/memory_manager.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -18,6 +19,9 @@
 #include <arpa/inet.h>
 
 #define TAG "Application"
+
+using ImageResource::MemoryManager;
+using ImageResource::ImageBufferPool;
 
 // 开机成功提示音只播放一次
 static bool g_startup_success_sound_played = false;
@@ -378,6 +382,11 @@ void Application::StopListeningFast(bool close_channel_after) {
 void Application::Start() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
+    
+    // 🔍 启动时内存状态报告
+    ESP_LOGI(TAG, "=== 🚀 应用启动 - 初始内存状态 ===");
+    MemoryManager::GetInstance().log_memory_status();
+    ImageBufferPool::GetInstance().log_pool_status();
 
     /* Setup the display */
     auto display = board.GetDisplay();
@@ -812,11 +821,21 @@ void Application::OnClockTimer() {
         was_channel_opened_last_check = false;
     }
 
-    // Print the debug info every 10 seconds
+    // 详细内存监控每10秒
     if (clock_ticks_ % 10 == 0) {
+        // 原始简单监控（保留兼容性）
         int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
         ESP_LOGI(TAG, "Free internal: %u minimal internal: %u", free_sram, min_free_sram);
+        
+        // 新的详细内存监控
+        MemoryManager::GetInstance().log_memory_status();
+        ImageBufferPool::GetInstance().log_pool_status();
+        
+        // 内存危险状态检测
+        if (MemoryManager::GetInstance().is_memory_critical()) {
+            ESP_LOGW(TAG, "⚠️  内存处于危险状态，建议释放资源！");
+        }
 
         // If we have synchronized server time, set the status to clock "HH:MM" if the device is idle
         if (ota_.HasServerTime()) {
