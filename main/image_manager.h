@@ -7,6 +7,11 @@
 #include "esp_err.h"
 #include <atomic>
 
+// 前向声明
+namespace ImageResource {
+    struct ResourceConfig;
+}
+
 // 下载策略配置
 #define ENABLE_SERIAL_DOWNLOAD 1  // 启用串行下载，避免并发网络请求
 #define DOWNLOAD_RETRY_BASE_DELAY_MS 5000  // 基础重试延时5秒
@@ -149,4 +154,7 @@ private:
     // 预载状态与控制
     std::atomic<bool> cancel_preload_{false};
     std::atomic<bool> is_preloading_{false};
+    
+    // 配置管理
+    const ImageResource::ResourceConfig* config_;
 };

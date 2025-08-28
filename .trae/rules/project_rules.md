@@ -1,0 +1,3 @@
+ESP32平台上uint32_t是longunsigned int类型
+永远不要写测试文件和测试程序，除非我明确要求你进行测试
+Always respond in Chinese-simplified

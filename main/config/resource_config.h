@@ -13,19 +13,19 @@ struct ResourceConfig {
     struct Network {
         uint32_t timeout_ms = 30000;           // 网络超时时间
         uint32_t retry_count = 3;              // 重试次数
-        uint32_t retry_delay_ms = 5000;        // 重试延迟
-        uint32_t buffer_size = 8192;           // 下载缓冲区大小
-        uint32_t connection_delay_ms = 1000;   // 连接间延迟
+        uint32_t retry_delay_ms = 3000;        // 重试延迟（优化：从5000ms减少到3000ms）
+        uint32_t buffer_size = 16384;          // 下载缓冲区大小（优化：从8192字节提升到16384字节）
+        uint32_t connection_delay_ms = 200;    // 连接间延迟（优化：从1000ms减少到200ms）
         bool enable_keep_alive = true;         // 启用keep-alive
     } network;
     
     // 内存配置
     struct Memory {
-        uint32_t allocation_threshold = 200 * 1024;  // 内存分配阈值 200KB
-        uint32_t download_threshold = 300 * 1024;    // 下载最小内存要求 300KB
-        uint32_t preload_threshold = 500 * 1024;     // 预加载最小内存要求 500KB
-        uint32_t buffer_pool_size = 10;              // 缓冲区池大小
-        bool enable_memory_pool = true;              // 启用内存池
+        uint32_t allocation_threshold = 150 * 1024;    // 内存分配阈值（优化：降低阈值减少内存检查频率）
+        uint32_t download_threshold = 250 * 1024;      // 下载最小内存要求（优化：适度降低要求）
+        uint32_t preload_threshold = 400 * 1024;       // 预加载最小内存要求（优化：适度降低要求）
+        uint32_t buffer_pool_size = 15;                // 缓冲区池大小（优化：增加缓冲区池）
+        bool enable_memory_pool = true;                // 启用内存池
     } memory;
     
     // 文件系统配置
@@ -51,11 +51,11 @@ struct ResourceConfig {
     
     // 下载模式配置
     struct DownloadMode {
-        bool disable_power_save = true;         // 禁用省电模式
-        bool pause_audio = true;                // 暂停音频处理
-        bool boost_priority = true;             // 提升任务优先级
-        uint32_t gc_interval_ms = 1000;         // 垃圾回收间隔
-        uint32_t network_stabilize_ms = 1000;   // 网络稳定等待时间
+        bool disable_power_save = true;            // 下载模式下禁用省电
+        bool pause_audio = true;                   // 暂停音频处理
+        bool boost_task_priority = true;           // 提升任务优先级
+        uint32_t gc_interval_ms = 500;             // 垃圾回收间隔（优化：从1000ms减少到500ms）
+        uint32_t network_stabilize_ms = 300;       // 网络稳定等待时间（优化：从1000ms减少到300ms）
     } download_mode;
     
     // 预加载配置

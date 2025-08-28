@@ -330,8 +330,8 @@ Result<void> NetworkDownloader::perform_download(Http* http, FileWriter& writer,
         total_downloaded += bytes_read;
         tracker.update_progress(total_downloaded);
         
-        // 适度延迟，避免过度占用CPU
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // 适度延迟，避免过度占用CPU（优化：从10ms减少到2ms提升下载速度）
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
     
     if (cancelled_) {

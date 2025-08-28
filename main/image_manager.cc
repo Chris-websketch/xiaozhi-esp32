@@ -17,12 +17,15 @@
 #include "application.h"      // 新增：包含应用程序头文件
 #include <esp_system.h>        // 新增：用于esp_restart重启
 #include "memory/memory_manager.h"  // 新增：内存监控功能
+#include "config/resource_config.h"  // 新增：配置管理系统
 
 #define TAG "ImageResManager"
 
-// 使用内存监控功能
+// 使用内存监控功能和配置管理
 using ImageResource::MemoryManager;
 using ImageResource::ImageBufferPool;
+using ImageResource::ConfigManager;
+using ImageResource::ResourceConfig;
 #define IMAGE_URL_CACHE_FILE "/resources/image_urls.json"  // 修改：图片URL缓存文件
 #define LOGO_URL_CACHE_FILE "/resources/logo_url.json"     // 修改：logo URL缓存文件
 #define IMAGE_BASE_PATH "/resources/images/"
@@ -45,6 +48,9 @@ ImageResourceManager::ImageResourceManager() {
     cached_dynamic_urls_.clear(); // 缓存的动态图片URL列表
     progress_callback_ = nullptr; // 初始化下载进度回调
     preload_progress_callback_ = nullptr; // 初始化预加载进度回调
+    
+    // 初始化配置管理器
+    config_ = &ConfigManager::GetInstance().get_config();
 }
 
 ImageResourceManager::~ImageResourceManager() {
@@ -631,7 +637,7 @@ esp_err_t ImageResourceManager::DownloadImages(const char* api_url) {
         }
         
         // 在下载模式下适当增加文件间等待时间，确保网络连接稳定
-        vTaskDelay(pdMS_TO_TICKS(500));  // 减少到500ms，大幅提升下载速度
+        vTaskDelay(pdMS_TO_TICKS(config_->network.connection_delay_ms));  // 使用配置的连接延迟
     }
     
     // 如果至少有一半文件下载成功，认为是部分成功
@@ -824,7 +830,7 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         return ESP_ERR_NO_MEM;
     }
     
-    while (retry_count < MAX_DOWNLOAD_RETRIES) {
+    while (retry_count < config_->network.retry_count) {
         last_logged_percent = -1;
         
         // 检查WiFi连接状态
@@ -833,7 +839,7 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
             if (progress_callback_) {
                 progress_callback_(0, 100, "网络连接已断开，等待重连...");
             }
-            vTaskDelay(pdMS_TO_TICKS(3000));  // 减少等待时间
+            vTaskDelay(pdMS_TO_TICKS(config_->download_mode.network_stabilize_ms));  // 使用配置的网络稳定等待时间
             retry_count++;
             continue;
         }
@@ -843,8 +849,8 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
             char message[128];
             const char* filename = strrchr(filepath, '/') + 1;
             if (retry_count > 0) {
-                snprintf(message, sizeof(message), "重试下载: %s (%d/%d)", 
-                        filename, retry_count + 1, MAX_DOWNLOAD_RETRIES);
+                snprintf(message, sizeof(message), "重试下载: %s (%d/%lu)",
+                        filename, retry_count + 1, config_->network.retry_count);
             } else {
                 snprintf(message, sizeof(message), "正在下载: %s", filename);
             }
@@ -886,24 +892,24 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         http->SetHeader("Accept", "*/*");                   // 接受任何类型
         
         if (!http->Open("GET", url)) {
-            ESP_LOGE(TAG, "无法连接到服务器: %s (尝试 %d/%d)", url, retry_count + 1, MAX_DOWNLOAD_RETRIES);
+            ESP_LOGE(TAG, "无法连接到服务器: %s (尝试 %d/%lu)", url, retry_count + 1, config_->network.retry_count);
             delete http;
             retry_count++;
             
             if (progress_callback_) {
                 char message[128];
-                snprintf(message, sizeof(message), "连接失败，正在重试 (%d/%d)", 
-                        retry_count, MAX_DOWNLOAD_RETRIES);
+                snprintf(message, sizeof(message), "连接失败，正在重试(%d/%lu)",
+                        retry_count, config_->network.retry_count);
                 progress_callback_(0, 100, message);
             }
             
-            // 减少重试等待时间，提高整体下载速度
-            vTaskDelay(pdMS_TO_TICKS(2000));  // 减少到2秒
+            // 使用配置的重试等待时间
+            vTaskDelay(pdMS_TO_TICKS(config_->network.retry_delay_ms));  // 使用配置的基础重试延迟
             
-            // 渐进式重试延时，但上限更低
+            // 渐进式重试延时
             if (retry_count >= 2) {
                 ESP_LOGW(TAG, "多次连接失败，短暂等待网络恢复");
-                vTaskDelay(pdMS_TO_TICKS(3000 * retry_count));  // 最多9秒
+                vTaskDelay(pdMS_TO_TICKS(config_->network.retry_delay_ms * retry_count / 2));  // 使用配置的渐进式重试延迟
             }
             continue;
         }
@@ -937,20 +943,17 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         
         ESP_LOGI(TAG, "下载文件大小: %u字节", (unsigned int)content_length);
         
-        // 调整缓冲区大小，降低下载速度以适应设备性能
-        size_t buffer_size = 8192;  // 默认1KB缓冲区，降低下载速度
+        // 使用配置的缓冲区大小，根据可用内存动态调整
+        size_t buffer_size = config_->network.buffer_size;  // 使用配置的默认缓冲区大小
         
-        // 根据可用内存动态调整缓冲区大小，降低一个量级
+        // 根据可用内存动态调整缓冲区大小
         size_t current_free_heap = esp_get_free_heap_size();
-        if (current_free_heap > 2000000) {
-            buffer_size = 8192;   // 2MB以上可用内存使用2KB缓冲区
-        } else if (current_free_heap > 1000000) {
-            buffer_size = 4096;   // 1MB以上使用1.5KB缓冲区
-        } else if (current_free_heap > 500000) {
-            buffer_size = 2048;   // 500KB以上使用1KB缓冲区
-        } else {
-            buffer_size = 1042;    // 否则使用512字节缓冲区
+        if (current_free_heap < config_->memory.allocation_threshold) {
+            buffer_size = config_->network.buffer_size / 4;  // 内存不足时减少缓冲区
+        } else if (current_free_heap < config_->memory.download_threshold) {
+            buffer_size = config_->network.buffer_size / 2;  // 内存紧张时减半缓冲区
         }
+        // 否则使用配置的默认缓冲区大小
         
         char* buffer = (char*)malloc(buffer_size);
         if (!buffer) {
@@ -970,10 +973,10 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         bool download_success = true;
         
         while (true) {
-            // 减少检查频率，提高下载速度
-            if (total_read % (1024 * 200) == 0) { // 每200KB检查一次（减少一半）
+            // 使用配置的内存检查频率和阈值
+            if (total_read % config_->memory.download_threshold == 0) { // 使用配置的检查频率
                 free_heap = esp_get_free_heap_size();
-                if (free_heap < 100000) { // 降低内存要求到100KB
+                if (free_heap < config_->memory.allocation_threshold) { // 使用配置的内存阈值
                     ESP_LOGW(TAG, "内存不足，中止下载，可用内存: %u字节", (unsigned int)free_heap);
                     download_success = false;
                     break;
@@ -1036,8 +1039,8 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
                         // 单文件下载时显示文件名
                         const char* filename = strrchr(filepath, '/') + 1;
                         if (retry_count > 0) {
-                            snprintf(message, sizeof(message), "重试下载 %s (%d/%d)", 
-                                    filename, retry_count + 1, MAX_DOWNLOAD_RETRIES);
+                            snprintf(message, sizeof(message), "重试下载 %s (%d/%lu)",
+                                    filename, retry_count + 1, config_->network.retry_count);
                         } else {
                             snprintf(message, sizeof(message), "正在下载 %s", filename);
                         }
@@ -1057,8 +1060,8 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
                 }
             }
             
-            // 添加下载延迟，降低下载速度以适应设备性能
-            vTaskDelay(pdMS_TO_TICKS(100));  // 添加100ms延迟，降低下载速度
+            // 添加下载延迟，避免过度占用CPU
+            vTaskDelay(pdMS_TO_TICKS(config_->download_mode.network_stabilize_ms / 100));  // 使用配置的网络稳定延迟的1/100
         }
         
         // 清理资源
@@ -1071,7 +1074,7 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
         http = nullptr;
         
         // 减少垃圾回收等待时间
-        vTaskDelay(pdMS_TO_TICKS(50));  // 减少到50ms
+        vTaskDelay(pdMS_TO_TICKS(config_->download_mode.gc_interval_ms / 25));  // 使用配置的垃圾回收间隔的1/25
         
         if (download_success) {
             // 验证下载的二进制文件（仅调试模式）
@@ -1150,8 +1153,8 @@ esp_err_t ImageResourceManager::DownloadFile(const char* url, const char* filepa
             if (progress_callback_) {
                 char message[128];
                 const char* filename = strrchr(filepath, '/') + 1;
-                snprintf(message, sizeof(message), "下载 %s 失败，准备重试 (%d/%d)", 
-                        filename, retry_count, MAX_DOWNLOAD_RETRIES);
+                snprintf(message, sizeof(message), "下载 %s 失败，准备重试 (%d/%lu)", 
+                        filename, retry_count, config_->network.retry_count);
                 progress_callback_(0, 100, message);
             }
             
@@ -3056,7 +3059,7 @@ void ImageResourceManager::EnterDownloadMode() {
     ESP_LOGI(TAG, "已提高下载任务优先级");
     
     // 6. 强制垃圾回收，释放内存并给WiFi更多稳定时间
-    vTaskDelay(pdMS_TO_TICKS(1000));  // 增加等待时间到1秒，让WiFi连接更稳定
+    vTaskDelay(pdMS_TO_TICKS(300));   // 优化：减少到300ms，加快下载模式进入速度
     
     // 7. 配置TCP保活参数，提高网络连接稳定性
     ESP_LOGI(TAG, "下载模式设置完成，开始专注下载");
