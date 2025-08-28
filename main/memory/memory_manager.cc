@@ -131,8 +131,36 @@ bool MemoryManager::is_memory_critical() const {
     size_t free_heap = esp_get_free_heap_size();
     size_t min_free = esp_get_minimum_free_heap_size();
     
-    // 如果可用内存少于阈值的50%，或者接近历史最低点，则认为处于危险状态
-    return (free_heap < memory_threshold_ / 2) || (free_heap < min_free * 1.2);
+    // 多级内存危险状态判断：
+    // 1. 绝对危险：小于1MB
+    // 2. 相对危险：小于阈值的25%  
+    // 3. 历史对比：仅当远低于历史最低点时才危险（98%阈值）
+    return (free_heap < 1024 * 1024) || 
+           (free_heap < memory_threshold_ / 4) ||
+           (free_heap < min_free * 0.98);
+}
+
+bool MemoryManager::is_memory_warning() const {
+    size_t free_heap = esp_get_free_heap_size();
+    size_t min_free = esp_get_minimum_free_heap_size();
+    
+    // 内存警告状态判断（比危险状态宽松）：
+    // 1. 绝对警告：小于2MB
+    // 2. 相对警告：小于阈值的50%
+    // 3. 历史对比：当接近历史最低点时警告（102%阈值）
+    return (free_heap < 2 * 1024 * 1024) || 
+           (free_heap < memory_threshold_ / 2) ||
+           (free_heap < min_free * 1.02);
+}
+
+MemoryStatus MemoryManager::get_memory_status() const {
+    if (is_memory_critical()) {
+        return MemoryStatus::CRITICAL;
+    } else if (is_memory_warning()) {
+        return MemoryStatus::WARNING;
+    } else {
+        return MemoryStatus::GOOD;
+    }
 }
 
 void MemoryManager::log_memory_status() const {
@@ -140,6 +168,25 @@ void MemoryManager::log_memory_status() const {
     size_t min_free = esp_get_minimum_free_heap_size();
     size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
     size_t fragmentation = get_heap_fragmentation_percent();
+    MemoryStatus status = get_memory_status();
+    
+    const char* status_str = "未知";
+    const char* status_emoji = "❓";
+    
+    switch (status) {
+        case MemoryStatus::GOOD:
+            status_str = "正常";
+            status_emoji = "✅";
+            break;
+        case MemoryStatus::WARNING:
+            status_str = "警告";
+            status_emoji = "⚠️ ";
+            break;
+        case MemoryStatus::CRITICAL:
+            status_str = "危险";
+            status_emoji = "🆘";
+            break;
+    }
     
     ESP_LOGI(TAG, "=== 内存状态报告 ===");
     ESP_LOGI(TAG, "可用堆内存: %zu bytes (%.1f KB)", free_heap, free_heap / 1024.0f);
@@ -147,7 +194,7 @@ void MemoryManager::log_memory_status() const {
     ESP_LOGI(TAG, "最大连续块: %zu bytes (%.1f KB)", largest_block, largest_block / 1024.0f);
     ESP_LOGI(TAG, "碎片率: %zu%%", fragmentation);
     ESP_LOGI(TAG, "内存阈值: %zu bytes (%.1f KB)", memory_threshold_, memory_threshold_ / 1024.0f);
-    ESP_LOGI(TAG, "危险状态: %s", is_memory_critical() ? "是" : "否");
+    ESP_LOGI(TAG, "内存状态: %s %s", status_emoji, status_str);
     ESP_LOGI(TAG, "已分配次数: %zu", stats_.allocation_count);
     ESP_LOGI(TAG, "已释放次数: %zu", stats_.deallocation_count);
 }

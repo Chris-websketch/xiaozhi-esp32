@@ -117,10 +117,10 @@ bool MqttNotifier::ConnectInternal() {
 		return false;
 	}
 
-	// 启动心跳任务（每30秒上报在线状态+指标）
+	// 启动心跳任务（每60秒上报在线状态+指标）
 	if (heartbeat_task_handle_ == nullptr) {
 		xTaskCreate([](void* arg){
-			static const int kIntervalMs = 30000;
+			static const int kIntervalMs = 60000;  // 调整为60秒，减少网络负载
 			MqttNotifier* self = static_cast<MqttNotifier*>(arg);
 			for(;;){
 				if (self->mqtt_ && self->mqtt_->IsConnected()) {
@@ -164,15 +164,19 @@ bool MqttNotifier::ConnectInternal() {
 						cJSON_AddItemToObject(root, "wifi", wifi);
 					}
 
-					// IoT设备状态（快照）：解析成功且非空数组才附加，避免依赖返回布尔值语义
+					// IoT设备状态（快照）：仅在状态变化时上报，避免频繁上报大量数据
+					static std::string last_iot_states_json;
 					auto& thing_manager = iot::ThingManager::GetInstance();
 					std::string iot_states_json;
 					thing_manager.GetStatesJson(iot_states_json, false);
-					cJSON* iot_states = cJSON_Parse(iot_states_json.c_str());
-					if (iot_states && cJSON_IsArray(iot_states) && cJSON_GetArraySize(iot_states) > 0) {
-						cJSON_AddItemToObject(root, "iot_states", iot_states);
-					} else if (iot_states) {
-						cJSON_Delete(iot_states);
+					if (iot_states_json != last_iot_states_json && !iot_states_json.empty() && iot_states_json != "[]") {
+						cJSON* iot_states = cJSON_Parse(iot_states_json.c_str());
+						if (iot_states && cJSON_IsArray(iot_states) && cJSON_GetArraySize(iot_states) > 0) {
+							cJSON_AddItemToObject(root, "iot_states", iot_states);
+							last_iot_states_json = iot_states_json;
+						} else if (iot_states) {
+							cJSON_Delete(iot_states);
+						}
 					}
 
 					char* payload = cJSON_PrintUnformatted(root);

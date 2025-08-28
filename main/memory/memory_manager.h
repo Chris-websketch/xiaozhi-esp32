@@ -10,6 +10,15 @@
 namespace ImageResource {
 
 /**
+ * 内存状态级别
+ */
+enum class MemoryStatus {
+    GOOD,      // 内存充足
+    WARNING,   // 内存警告
+    CRITICAL   // 内存危险
+};
+
+/**
  * 内存统计信息
  */
 struct MemoryStats {
@@ -71,6 +80,8 @@ public:
     
     // 内存监控功能
     bool is_memory_critical() const; // 检查内存是否处于危险水平
+    bool is_memory_warning() const;  // 检查内存是否处于警告水平
+    MemoryStatus get_memory_status() const; // 获取详细的内存状态
     void log_memory_status() const;  // 记录当前内存状态
     size_t get_heap_fragmentation_percent() const; // 获取堆碎片率
 
@@ -86,7 +97,7 @@ private:
     void update_dealloc_stats(size_t deallocated_size);
     
     mutable MemoryStats stats_;
-    size_t memory_threshold_ = 200 * 1024; // 200KB默认阈值
+    size_t memory_threshold_ = 512 * 1024; // 512KB默认阈值，适合ESP32S3
     
     friend class MemoryBlock;
 };

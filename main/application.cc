@@ -821,20 +821,23 @@ void Application::OnClockTimer() {
         was_channel_opened_last_check = false;
     }
 
-    // 详细内存监控每10秒
-    if (clock_ticks_ % 10 == 0) {
+    // 详细内存监控每30秒
+    if (clock_ticks_ % 30 == 0) {
         // 原始简单监控（保留兼容性）
         int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
         ESP_LOGI(TAG, "Free internal: %u minimal internal: %u", free_sram, min_free_sram);
-        
+
         // 新的详细内存监控
         MemoryManager::GetInstance().log_memory_status();
         ImageBufferPool::GetInstance().log_pool_status();
         
-        // 内存危险状态检测
-        if (MemoryManager::GetInstance().is_memory_critical()) {
-            ESP_LOGW(TAG, "⚠️  内存处于危险状态，建议释放资源！");
+        // 多级内存状态检测
+        auto memory_status = MemoryManager::GetInstance().get_memory_status();
+        if (memory_status == ImageResource::MemoryStatus::CRITICAL) {
+            ESP_LOGW(TAG, "🆘 内存处于危险状态，建议释放资源！");
+        } else if (memory_status == ImageResource::MemoryStatus::WARNING) {
+            ESP_LOGW(TAG, "⚠️  内存接近警告水平，请注意内存使用");
         }
 
         // If we have synchronized server time, set the status to clock "HH:MM" if the device is idle
