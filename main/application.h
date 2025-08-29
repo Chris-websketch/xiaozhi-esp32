@@ -18,6 +18,18 @@
 #include "ota.h"
 #include "background_task.h"
 #include "memory/memory_manager.h"
+
+/**
+ * @brief 设备配置结构
+ * 包含MQTT连接所需的配置信息
+ */
+struct DeviceConfig {
+    std::string mqtt_host;      ///< MQTT服务器地址
+    int mqtt_port;              ///< MQTT服务器端口
+    std::string mqtt_username;  ///< MQTT用户名
+    std::string mqtt_password;  ///< MQTT密码
+    std::string device_id;      ///< 设备ID（用作MQTT客户端ID）
+};
 #if CONFIG_USE_ALARM
 //test
 #include "AlarmClock.h"
@@ -98,11 +110,21 @@ public:
 
     // 发送闹钟消息的辅助函数
     void SendAlarmMessage();
+    
+    /**
+     * @brief 获取设备配置信息
+     * @return DeviceConfig 设备配置结构，包含MQTT连接参数
+     */
+    const DeviceConfig& GetDeviceConfig() const;
 
     // 内存状态跟踪变量（用于减少重复日志输出）
     mutable ImageResource::MemoryStatus last_memory_status_ = ImageResource::MemoryStatus::GOOD;
     mutable float last_pool_utilization_ = 0.0f;
     mutable bool last_pool_pressure_state_ = false;
+    
+    // 设备配置缓存
+    mutable DeviceConfig device_config_;
+    mutable bool device_config_loaded_ = false;
 
     // MQTT 通知回调处理
     void OnMqttNotification(const cJSON* root);

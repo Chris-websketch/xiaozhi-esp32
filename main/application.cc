@@ -12,6 +12,7 @@
 #include "notifications/mqtt_notifier.h"
 #include "memory/memory_manager.h"
 #include "config/resource_config.h"
+#include "settings.h"
 
 #include <cstring>
 #include <cmath>
@@ -1780,4 +1781,44 @@ void Application::HandleProtocolTimeout() {
     
     ESP_LOGI(TAG, "Protocol timeout handling completed, device returned to idle state");
     timeout_handling_active_ = false;
+}
+
+/**
+ * @brief 获取设备配置信息
+ * 从NVS存储中读取MQTT配置参数
+ * @return DeviceConfig 设备配置结构，包含MQTT连接参数
+ */
+const DeviceConfig& Application::GetDeviceConfig() const {
+    if (!device_config_loaded_) {
+        // 从Settings中读取MQTT配置
+        Settings mqtt_settings("mqtt", false);
+        
+        // 读取MQTT服务器配置
+        std::string endpoint = mqtt_settings.GetString("endpoint", "x6bf310e.ala.cn-hangzhou.emqxsl.cn");
+        
+        // 解析主机和端口
+        size_t colon_pos = endpoint.find(':');
+        if (colon_pos != std::string::npos) {
+            device_config_.mqtt_host = endpoint.substr(0, colon_pos);
+            device_config_.mqtt_port = std::stoi(endpoint.substr(colon_pos + 1));
+        } else {
+            device_config_.mqtt_host = endpoint;
+            device_config_.mqtt_port = 8883; // 默认MQTT over TLS端口
+        }
+        
+        // 读取认证信息
+        device_config_.mqtt_username = mqtt_settings.GetString("username", "xiaoqiao");
+        device_config_.mqtt_password = mqtt_settings.GetString("password", "dzkj0000");
+        device_config_.device_id = mqtt_settings.GetString("client_id", "xiaozhi_device");
+        
+        device_config_loaded_ = true;
+        
+        ESP_LOGI(TAG, "Device config loaded: host=%s, port=%d, username=%s, client_id=%s", 
+                 device_config_.mqtt_host.c_str(), 
+                 device_config_.mqtt_port,
+                 device_config_.mqtt_username.c_str(),
+                 device_config_.device_id.c_str());
+    }
+    
+    return device_config_;
 }

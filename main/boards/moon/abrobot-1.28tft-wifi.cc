@@ -38,6 +38,9 @@
 #include "settings.h"             // 设置管理
 #include "iot_image_display.h"  // 引入图片显示模式定义
 #include "image_manager.h"  // 引入图片资源管理器头文件
+#include "ui/music_player_ui.h"  // 引入音乐播放器UI组件
+#include "ui/mqtt_music_handler.h"  // 引入MQTT音乐控制器
+#include "iot/things/music_player.h"  // 引入音乐播放器IoT设备
 #define TAG "abrobot-1.28tft-wifi"  // 日志标签
 
 // 在abrobot-1.28tft-wifi.cc文件开头添加外部声明
@@ -143,6 +146,10 @@ public:
     
     // 浅睡眠状态管理
     bool is_light_sleeping_ = false;     // 浅睡眠状态标志
+    
+    // 音乐播放器UI相关成员
+    MusicPlayerUI* music_player_ui_ = nullptr;  // 音乐播放器UI实例
+    bool music_player_active_ = false;          // 音乐播放器激活状态
  
     lv_obj_t * tab1 = nullptr;          // 第一个标签页（主界面）
     lv_obj_t * tab2 = nullptr;          // 第二个标签页（时钟界面）
@@ -171,6 +178,27 @@ public:
                     }) {
         DisplayLockGuard lock(this);  // 获取显示锁，防止多线程访问冲突
         SetupUI();                    // 设置用户界面
+        
+        // 初始化音乐播放器UI
+        music_player_config_t config = getDefaultMusicPlayerConfig();
+        music_player_ui_ = music_player_ui_create(&config);
+        if (!music_player_ui_) {
+            ESP_LOGE(TAG, "创建音乐播放器UI失败");
+        } else {
+            // 初始化音乐播放器UI，使用当前活动屏幕作为父对象
+            lv_obj_t* screen = lv_screen_active();
+            music_player_error_t ret = music_player_ui_->Initialize(screen, &config);
+            if (ret != MUSIC_PLAYER_OK) {
+                ESP_LOGE(TAG, "初始化音乐播放器UI失败: %d", ret);
+                music_player_ui_destroy(music_player_ui_);
+                music_player_ui_ = nullptr;
+            } else {
+                // 设置全局实例指针，供IoT接口使用
+                extern MusicPlayerUI* g_music_player_instance;
+                g_music_player_instance = music_player_ui_;
+                ESP_LOGI(TAG, "音乐播放器UI初始化成功");
+            }
+        }
         
         // 创建一个用于保护下载进度状态的互斥锁
         if (g_download_progress.mutex == NULL) {
@@ -204,6 +232,14 @@ public:
     
     // 析构函数 - 清理定时器
     ~CustomLcdDisplay() {
+        // 清理音乐播放器UI
+        if (music_player_ui_) {
+            extern MusicPlayerUI* g_music_player_instance;
+            g_music_player_instance = nullptr;  // 先清理全局指针
+            music_player_ui_destroy(music_player_ui_);
+            music_player_ui_ = nullptr;
+        }
+        
         if (idle_timer_) {
             lv_timer_del(idle_timer_);
             idle_timer_ = nullptr;
@@ -212,6 +248,68 @@ public:
             lv_timer_del(sleep_timer_);
             sleep_timer_ = nullptr;
         }
+    }
+
+    /**
+     * @brief 显示音乐播放器界面
+     * @param album_cover_path 专辑封面路径（可选）
+     * @param title 歌曲标题
+     * @param artist 艺术家名称
+     * @param duration_ms 显示持续时间（毫秒）
+     */
+    void ShowMusicPlayer(const char* album_cover_path = nullptr, 
+                        const char* title = "未知歌曲", 
+                        const char* artist = "未知艺术家",
+                        uint32_t duration_ms = 30000) {
+        if (!music_player_ui_) {
+            ESP_LOGE(TAG, "音乐播放器UI未初始化");
+            return;
+        }
+        
+        // 设置歌曲信息
+        if (album_cover_path) {
+            // TODO: 需要将文件路径转换为图像数据
+            // music_player_ui_->SetAlbumCover(album_cover_path);
+            ESP_LOGI(TAG, "专辑封面路径: %s (暂未实现文件加载)", album_cover_path);
+        }
+        music_player_ui_->SetSongInfo(title, artist);
+        
+        // 显示音乐播放器，传递持续时间参数
+        music_player_ui_->Show(duration_ms);
+        music_player_active_ = true;
+        
+        ESP_LOGI(TAG, "音乐播放器UI已显示: %s - %s (持续时间: %lu ms)", title, artist, duration_ms);
+    }
+    
+    /**
+     * @brief 隐藏音乐播放器界面
+     */
+    void HideMusicPlayer() {
+        if (music_player_ui_ && music_player_active_) {
+            music_player_ui_->Hide();
+            music_player_active_ = false;
+            ESP_LOGI(TAG, "音乐播放器UI已隐藏");
+        }
+    }
+    
+    /**
+     * @brief 更新音乐频谱显示
+     * @param spectrum_data 频谱数据数组
+     * @param spectrum_size 频谱数据大小
+     */
+    void UpdateMusicSpectrum(const float* spectrum_data, size_t spectrum_size) {
+        // 频谱功能已删除
+        // if (music_player_ui_ && music_player_active_) {
+        //     music_player_ui_->UpdateSpectrum(spectrum_data, spectrum_size);
+        // }
+    }
+    
+    /**
+     * @brief 检查音乐播放器是否处于激活状态
+     * @return true 如果音乐播放器处于激活状态，否则返回false
+     */
+    bool IsMusicPlayerActive() const {
+        return music_player_active_;
     }
 
     // 设置空闲状态方法，控制是否启用空闲定时器
@@ -1389,6 +1487,9 @@ private:
     // 闹钟提前唤醒状态标志
     bool is_alarm_pre_wake_active_ = false;
     
+    // 音乐播放器MQTT控制器
+    MqttMusicHandler* mqtt_music_handler_ = nullptr;
+    
     // 将URL定义为静态变量 - 现在只需要一个API URL
     static const char* API_URL;
     static const char* VERSION_URL;
@@ -1542,6 +1643,9 @@ private:
         thing_manager.AddThing(iot::CreateThing("Screen"));          // 添加屏幕设备
         thing_manager.AddThing(iot::CreateThing("RotateDisplay"));   // 添加旋转显示设备
         thing_manager.AddThing(iot::CreateThing("ImageDisplay"));    // 添加图片显示控制设备
+        // thing_manager.AddThing(iot::CreateThing("MusicPlayer"));     // 添加音乐播放器控制设备
+        // 直接创建MusicPlayer实例（避免静态初始化顺序问题）
+        thing_manager.AddThing(new iot::MusicPlayerThing());
 #if CONFIG_USE_ALARM
         thing_manager.AddThing(iot::CreateThing("AlarmIot"));
 #endif
@@ -1699,6 +1803,116 @@ private:
         ESP_LOGI(TAG, "3级省电定时器初始化完成 - 60秒浅睡眠, 180秒超级省电");
     }
 
+    // 初始化音乐播放器MQTT控制器
+    void InitializeMqttMusicHandler() {
+        if (!mqtt_music_handler_) {
+            try {
+                // 获取应用程序配置
+                auto& app = Application::GetInstance();
+                const auto& device_config = app.GetDeviceConfig();
+                
+                // 创建MQTT音乐控制器实例
+                mqtt_music_handler_ = new MqttMusicHandler();
+                
+                // 设置MQTT连接参数
+                mqtt_music_handler_->SetBrokerHost(device_config.mqtt_host);
+                mqtt_music_handler_->SetBrokerPort(device_config.mqtt_port);
+                mqtt_music_handler_->SetUsername(device_config.mqtt_username);
+                mqtt_music_handler_->SetPassword(device_config.mqtt_password);
+                mqtt_music_handler_->SetClientId(device_config.device_id);
+                
+                // 设置音乐命令回调函数
+                mqtt_music_handler_->SetMusicCommandCallback([this](const char* command, const char* params) {
+                    if (display_) {
+                        HandleMusicCommand(command, params);
+                    }
+                });
+                
+                // 启动MQTT连接
+                if (mqtt_music_handler_->Connect()) {
+                    ESP_LOGI(TAG, "MQTT音乐控制器初始化成功");
+                } else {
+                    ESP_LOGE(TAG, "MQTT音乐控制器连接失败");
+                }
+            } catch (const std::exception& e) {
+                ESP_LOGE(TAG, "MQTT音乐控制器初始化异常: %s", e.what());
+                if (mqtt_music_handler_) {
+                    delete mqtt_music_handler_;
+                    mqtt_music_handler_ = nullptr;
+                }
+            }
+        }
+    }
+    
+    // 处理音乐控制命令
+    void HandleMusicCommand(const char* command, const char* params) {
+        if (!display_) return;
+        
+        ESP_LOGI(TAG, "收到音乐控制命令: %s, 参数: %s", command, params ? params : "无");
+        
+        if (strcmp(command, "show") == 0) {
+            // 解析参数并显示音乐播放器
+            const char* title = "未知歌曲";
+            const char* artist = "未知艺术家";
+            const char* album_cover = nullptr;
+            uint32_t duration_ms = 30000;
+            
+            if (params) {
+                // 简单的参数解析（实际应用中可以使用JSON解析）
+                cJSON* json = cJSON_Parse(params);
+                if (json) {
+                    cJSON* title_item = cJSON_GetObjectItem(json, "title");
+                    if (title_item && cJSON_IsString(title_item)) {
+                        title = title_item->valuestring;
+                    }
+                    
+                    cJSON* artist_item = cJSON_GetObjectItem(json, "artist");
+                    if (artist_item && cJSON_IsString(artist_item)) {
+                        artist = artist_item->valuestring;
+                    }
+                    
+                    cJSON* cover_item = cJSON_GetObjectItem(json, "album_cover");
+                    if (cover_item && cJSON_IsString(cover_item)) {
+                        album_cover = cover_item->valuestring;
+                    }
+                    
+                    cJSON* duration_item = cJSON_GetObjectItem(json, "duration_ms");
+                    if (duration_item && cJSON_IsNumber(duration_item)) {
+                        duration_ms = (uint32_t)duration_item->valuedouble;
+                    }
+                    
+                    cJSON_Delete(json);
+                }
+            }
+            
+            display_->ShowMusicPlayer(album_cover, title, artist, duration_ms);
+            
+        } else if (strcmp(command, "hide") == 0) {
+            display_->HideMusicPlayer();
+            
+        } else if (strcmp(command, "spectrum") == 0 && params) {
+            // 解析频谱数据并更新显示
+            cJSON* json = cJSON_Parse(params);
+            if (json) {
+                cJSON* spectrum_array = cJSON_GetObjectItem(json, "spectrum");
+                if (spectrum_array && cJSON_IsArray(spectrum_array)) {
+                    int array_size = cJSON_GetArraySize(spectrum_array);
+                    if (array_size > 0 && array_size <= 32) {
+                        float spectrum_data[32] = {0};
+                        for (int i = 0; i < array_size; i++) {
+                            cJSON* item = cJSON_GetArrayItem(spectrum_array, i);
+                            if (item && cJSON_IsNumber(item)) {
+                                spectrum_data[i] = (float)item->valuedouble;
+                            }
+                        }
+                        display_->UpdateMusicSpectrum(spectrum_data, array_size);
+                    }
+                }
+                cJSON_Delete(json);
+            }
+        }
+    }
+    
     // 初始化闹钟监听器
     void InitializeAlarmMonitor() {
 #if CONFIG_USE_ALARM
@@ -2111,7 +2325,6 @@ private:
         ESP_LOGI(TAG, "🎬 图片播放任务启动 - 配置强力音频保护机制");
         
         // **智能分级音频保护配置**
-        const bool ENABLE_SMART_PROTECTION = true;   // 启用智能保护
         const bool ENABLE_DYNAMIC_PRIORITY = true;   // 启用动态优先级调节
         
         // **性能优化设置**
@@ -2571,6 +2784,9 @@ public:
         return is_light_sleeping_;
     }
     
+    // 音乐播放器UI控制方法
+
+    
     // 检查是否处于超级省电模式
     bool IsInSuperPowerSaveMode() const {
         return is_in_super_power_save_;
@@ -2655,6 +2871,9 @@ public:
         
         // 初始化闹钟监听器
         InitializeAlarmMonitor();
+        
+        // 初始化MQTT音乐控制器
+        InitializeMqttMusicHandler();
         
         // 显示初始化欢迎信息
         ShowWelcomeMessage();
@@ -2798,6 +3017,12 @@ public:
         if (power_manager_ != nullptr) {
             delete power_manager_;
             power_manager_ = nullptr;
+        }
+        
+        // 清理MQTT音乐控制器
+        if (mqtt_music_handler_ != nullptr) {
+            delete mqtt_music_handler_;
+            mqtt_music_handler_ = nullptr;
         }
     }
 };

@@ -26,6 +26,9 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "error/error_handling.cc"
             "config/resource_config.cc"
             "downloader/network_downloader.cc"
+            "ui/mqtt_music_handler.cpp"
+            "ui/music_player_ui.cpp"
+            "ui/MusicIcon.c"
             )
 
 set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "memory" "error" "config" "downloader")
