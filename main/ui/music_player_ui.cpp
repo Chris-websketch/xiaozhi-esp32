@@ -154,9 +154,19 @@ music_player_error_t MusicPlayerUI::Show(uint32_t duration_ms) {
         taskYIELD();
     }
     
-    // 启动图标旋转动画
+    // 智能动画控制：根据系统负载决定是否启动旋转动画
     if (config_.enable_rotation) {
-        StartIconRotation();
+        // 检查当前动画负载，避免过多动画导致看门狗超时
+        uint32_t running_animations = lv_anim_count_running();
+        if (running_animations <= 3) {
+            StartIconRotation();
+        } else {
+            ESP_LOGW(TAG, "High system load (%lu animations), rotation disabled for stability", 
+                     running_animations);
+        }
+        
+        // 给系统更多时间处理UI更新
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     
     // 启动动画定时器
@@ -581,7 +591,23 @@ void MusicPlayerUI::EspTimerCallback(void* arg) {
  */
 void MusicPlayerUI::IconRotationCallback(void* obj, int32_t value) {
     if (obj) {
+        // 性能优化：减少不必要的UI更新，避免看门狗超时
+        static int32_t last_value = -1;
+        static uint32_t update_count = 0;
+        
+        // 只有角度变化超过阈值时才更新UI（减少50%的刷新频率）
+        if (abs(value - last_value) < 150) { // 15度变化阈值
+            return;
+        }
+        
         lv_obj_set_style_transform_angle(static_cast<lv_obj_t*>(obj), value, LV_PART_MAIN);
+        last_value = value;
+        update_count++;
+        
+        // 每10次更新后主动让出CPU时间，避免阻塞IDLE任务
+        if (update_count % 10 == 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
 }
 
@@ -625,6 +651,13 @@ void MusicPlayerUI::CreateIconRotationAnimation() {
  */
 void MusicPlayerUI::StartIconRotation() {
     if (icon_rotation_anim_ && album_cover_) {
+        // 智能负载控制：检查当前系统负载
+        if (lv_anim_count_running() > 5) {
+            ESP_LOGW(TAG, "High animation load detected (%d animations), delaying rotation start", 
+                     lv_anim_count_running());
+            return;
+        }
+        
         lv_anim_start(icon_rotation_anim_);
         ESP_LOGI(TAG, "Icon rotation animation started (speed: %lu ms/rotation)", config_.rotation_speed_ms);
     } else {
@@ -769,7 +802,7 @@ music_player_config_t getDefaultMusicPlayerConfig(void) {
     config.center_radius = 60;
     // 缩放系数: 1.0=60px, 1.2=72px, 1.5=90px, 2.0=120px
     config.icon_scale_factor = 1.2f; // 默认1.2倍 (适合1.28寸圆屏)
-    config.rotation_speed_ms = 4000; // 4秒转一圈 (慢速优雅旋转)
+    config.rotation_speed_ms = 6000; // 6秒转一圈 (减少CPU负载，避免看门狗超时)
     config.enable_rotation = true;   // 启用旋转动画
     
     return config;
