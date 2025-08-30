@@ -1,5 +1,6 @@
 #include "mqtt_notifier.h"
 
+#include <cstring>
 #include <esp_log.h>
 #include "board.h"
 #include "sdkconfig.h"
@@ -7,6 +8,8 @@
 #include <esp_heap_caps.h>
 #include <time.h>
 #include <esp_app_desc.h>
+#include <sstream>
+#include <iomanip>
 #include "system_info.h"
 #include "iot/thing_manager.h"
 
@@ -71,6 +74,18 @@ void MqttNotifier::Stop() {
 		vTaskDelete(heartbeat_task_handle_);
 		heartbeat_task_handle_ = nullptr;
 	}
+	
+	// 停止ACK监控任务
+	if (ack_monitor_task_handle_ != nullptr) {
+		vTaskDelete(ack_monitor_task_handle_);
+		ack_monitor_task_handle_ = nullptr;
+	}
+	
+	// 清理待确认消息
+	{
+		std::lock_guard<std::mutex> lock(pending_acks_mutex_);
+		pending_acks_.clear();
+	}
 	started_ = false;
 }
 
@@ -92,10 +107,15 @@ bool MqttNotifier::ConnectInternal() {
 		}
 		
 		cJSON* root = cJSON_Parse(payload.c_str());
-		if (root && on_message_) {
-			on_message_(root);
-		}
 		if (root) {
+			// 检查是否是ACK确认回复
+			cJSON* type = cJSON_GetObjectItem(root, "type");
+			if (type && cJSON_IsString(type) && std::strcmp(type->valuestring, "ack_receipt") == 0) {
+				HandleAckReceipt(root);
+			} else if (on_message_) {
+				// 其他消息交给回调处理
+				on_message_(root);
+			}
 			cJSON_Delete(root);
 		}
 	});
@@ -193,6 +213,17 @@ bool MqttNotifier::ConnectInternal() {
 			}
 		}, "mqtt_heartbeat", 4096, this, 3, &heartbeat_task_handle_);
 	}
+	
+	// 启动ACK确认监控任务（增加栈空间到6KB）
+	if (ack_monitor_task_handle_ == nullptr) {
+		xTaskCreate([](void* arg){
+			MqttNotifier* self = static_cast<MqttNotifier*>(arg);
+			for(;;){
+				self->CheckPendingAcks();
+				vTaskDelay(pdMS_TO_TICKS(5000));  // 每5秒检查一次
+			}
+		}, "ack_monitor", 6144, this, 2, &ack_monitor_task_handle_);
+	}
 
 	// 显式订阅下行主题，确保服务端推送能到达
 	if (!downlink_topic_.empty()) {
@@ -258,20 +289,64 @@ bool MqttNotifier::PublishUplink(const cJSON* root, int qos) {
 	return ok;
 }
 
+
+
+// =============================================================================
+// ACK发布方法（内置服务器确认机制）
+// =============================================================================
+
 bool MqttNotifier::PublishAck(const char* json, int qos) {
 	if (mqtt_ == nullptr || ack_topic_.empty()) {
 		ESP_LOGW(TAG, "PublishAck skipped: mqtt not ready or ack topic empty");
 		return false;
 	}
+	
+	if (json == nullptr || std::strlen(json) == 0) {
+		ESP_LOGW(TAG, "PublishAck skipped: empty json");
+		return false;
+	}
+	
+	// 解析现有JSON并添加message_id
+	cJSON* root = cJSON_Parse(json);
+	if (root == nullptr) {
+		ESP_LOGE(TAG, "Failed to parse JSON for ACK confirmation");
+		return false;
+	}
+	
+	// 生成唯一消息ID
+	std::string message_id = GenerateMessageId();
+	cJSON_AddStringToObject(root, "message_id", message_id.c_str());
+	
+	// 转换回JSON字符串
+	char* payload = cJSON_PrintUnformatted(root);
+	if (!payload) {
+		ESP_LOGE(TAG, "Failed to stringify JSON for ACK confirmation");
+		cJSON_Delete(root);
+		return false;
+	}
+	
 	int attempt_qos = qos;
 	if (attempt_qos < 0) attempt_qos = 0;
 	if (attempt_qos > 2) attempt_qos = 2;
-	bool ok = mqtt_->Publish(ack_topic_, json, attempt_qos);
-	if (ok) {
-		ESP_LOGI(TAG, "PublishAck %s (QoS=%d): sent", ack_topic_.c_str(), attempt_qos);
-	} else {
-		ESP_LOGW(TAG, "PublishAck %s (QoS=%d): send failed, but message may still reach server", ack_topic_.c_str(), attempt_qos);
+	
+	// 发送消息
+	// 无论发送状态如何，都添加到待确认列表，让超时机制处理真正的失败
+	{
+		std::lock_guard<std::mutex> lock(pending_acks_mutex_);
+		pending_acks_[message_id] = PendingAck(std::string(payload), attempt_qos);
 	}
+	
+	bool ok = mqtt_->Publish(ack_topic_, payload, attempt_qos);
+	if (ok) {
+		ESP_LOGI(TAG, "PublishAck %s (QoS=%d): sent with message_id=%s", 
+			 ack_topic_.c_str(), attempt_qos, message_id.c_str());
+	} else {
+		ESP_LOGW(TAG, "PublishAck %s (QoS=%d): publish returned false for message_id=%s (but may still reach server)", 
+			 ack_topic_.c_str(), attempt_qos, message_id.c_str());
+	}
+	
+	cJSON_free(payload);
+	cJSON_Delete(root);
 	return ok;
 }
 
@@ -283,4 +358,109 @@ bool MqttNotifier::PublishAck(const cJSON* root, int qos) {
 	cJSON_free(payload);
 	return ok;
 }
+
+// =============================================================================
+// ACK确认处理相关方法
+// =============================================================================
+
+void MqttNotifier::HandleAckReceipt(const cJSON* receipt) {
+	cJSON* message_id_json = cJSON_GetObjectItem(receipt, "message_id");
+	cJSON* status_json = cJSON_GetObjectItem(receipt, "status");
+	cJSON* received_at_json = cJSON_GetObjectItem(receipt, "received_at");
+	
+	if (!message_id_json || !cJSON_IsString(message_id_json)) {
+		ESP_LOGW(TAG, "Invalid ACK receipt: missing or invalid message_id");
+		return;
+	}
+	
+	std::string message_id = message_id_json->valuestring;
+	std::string status = (status_json && cJSON_IsString(status_json)) ? status_json->valuestring : "unknown";
+	uint32_t received_at = (received_at_json && cJSON_IsNumber(received_at_json)) ? (uint32_t)received_at_json->valuedouble : 0;
+	
+	// 从待确认列表中移除
+	std::lock_guard<std::mutex> lock(pending_acks_mutex_);
+	auto it = pending_acks_.find(message_id);
+	if (it != pending_acks_.end()) {
+		auto duration = std::chrono::steady_clock::now() - it->second.sent_time;
+		auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+		
+		ESP_LOGI(TAG, "ACK confirmation received: message_id=%s, status=%s, rtt=%lldms, server_time=%lu", 
+			 message_id.c_str(), status.c_str(), (long long)duration_ms, (unsigned long)received_at);
+		
+		pending_acks_.erase(it);
+	} else {
+		ESP_LOGW(TAG, "Received ACK confirmation for unknown message_id: %s", message_id.c_str());
+	}
+}
+
+std::string MqttNotifier::GenerateMessageId() {
+	auto now = std::chrono::system_clock::now();
+	auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+	
+	std::stringstream ss;
+	ss << "msg_" << timestamp << "_" << (next_message_id_++);
+	return ss.str();
+}
+
+void MqttNotifier::CheckPendingAcks() {
+	std::lock_guard<std::mutex> lock(pending_acks_mutex_);
+	
+	if (pending_acks_.empty()) {
+		return;
+	}
+	
+	auto now = std::chrono::steady_clock::now();
+	std::vector<std::string> to_remove;  // 收集需要删除的key
+	std::vector<std::string> to_retry;   // 收集需要重试的key
+	
+	// 先遍历找出超时的消息
+	for (const auto& pair : pending_acks_) {
+		auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - pair.second.sent_time).count();
+		
+		if (duration_ms > ACK_TIMEOUT_MS) {
+			if (pair.second.retry_count < MAX_ACK_RETRIES) {
+				to_retry.push_back(pair.first);
+			} else {
+				to_remove.push_back(pair.first);
+				ESP_LOGE(TAG, "ACK permanently failed for message_id=%s after %d attempts", 
+					 pair.first.c_str(), pair.second.retry_count + 1);
+			}
+		}
+	}
+	
+	// 处理重试
+	for (const auto& message_id : to_retry) {
+		auto it = pending_acks_.find(message_id);
+		if (it != pending_acks_.end()) {
+			ESP_LOGW(TAG, "ACK timeout for message_id=%s (attempt %d), retrying...", 
+				 message_id.c_str(), it->second.retry_count + 1);
+			
+			// 尝试重发（不使用延迟）
+			if (mqtt_ && !ack_topic_.empty()) {
+				bool ok = mqtt_->Publish(ack_topic_, it->second.payload, it->second.qos);
+				if (ok) {
+					it->second.retry_count++;
+					it->second.sent_time = now;
+					ESP_LOGI(TAG, "ACK message resent: message_id=%s (QoS=%d)", message_id.c_str(), it->second.qos);
+				} else {
+					to_remove.push_back(message_id);
+					ESP_LOGW(TAG, "Failed to resend ACK message: message_id=%s", message_id.c_str());
+				}
+			} else {
+				to_remove.push_back(message_id);
+			}
+		}
+	}
+	
+	// 删除失败的消息
+	for (const auto& message_id : to_remove) {
+		pending_acks_.erase(message_id);
+	}
+	
+	// 记录待确认消息数量
+	ESP_LOGD(TAG, "Pending ACK confirmations: %zu", pending_acks_.size());
+}
+
+
+
 

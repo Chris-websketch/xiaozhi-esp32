@@ -170,6 +170,7 @@ https://github.com/eclipse-paho/paho.mqtt.java
   - `target`: `system` | `notify` | `iot`
   - `status`: `ok` | `error`
   - `request_id`: 可选，透传下行中的 `request_id`（如果存在）
+  - `message_id`: 可选，设备生成的唯一消息ID（用于服务器确认机制）
   - `ts`: 可选，Unix 时间戳（秒）
 
 ### 1) iot 指令 ACK
@@ -191,3 +192,59 @@ https://github.com/eclipse-paho/paho.mqtt.java
 ```json
 {"type":"ack","target":"notify","status":"ok","request_id":"n1"}
 ```
+
+### 4) 带确认机制的 ACK（默认行为）
+设备使用 `PublishAck` 方法时，会自动添加 `message_id` 字段，启用服务器确认机制：
+```json
+{"type":"ack","target":"iot","status":"ok","command":{"name":"Speaker","method":"SetVolume","parameters":{"volume":100}},"request_id":"123","message_id":"msg_1704901234567_1"}
+```
+
+## ACK 确认机制（服务器端到设备端）
+
+为了确保 ACK 消息的可靠传输，服务器收到设备的 ACK 消息后应立即回复确认。
+
+- 发布主题：devices/{client_id}/downlink
+- QoS：1 或 2
+- 触发时机：服务器收到带有 `message_id` 的 ACK 消息后立即回复
+
+### ACK 确认回复格式
+
+```json
+{
+  "type": "ack_receipt",
+  "message_id": "msg_1704901234567_1",
+  "received_at": 1704901234,
+  "status": "processed"
+}
+```
+
+字段说明：
+- `type`: 固定为 `ack_receipt`
+- `message_id`: 对应设备发送的 ACK 消息中的 `message_id`
+- `received_at`: 服务器接收消息的 Unix 时间戳（秒）
+- `status`: 处理状态
+  - `processed`: 消息已成功处理
+  - `failed`: 消息处理失败
+  - `ignored`: 消息被忽略（如重复消息）
+
+### 设备端行为
+
+1. **发送 ACK**：设备使用 `PublishAck` 方法发送带 `message_id` 的 ACK（自动启用确认机制）
+2. **等待确认**：设备在内部跟踪待确认的消息，默认超时时间 10 秒
+3. **重试机制**：如果超时未收到确认，自动重试最多 2 次，每次重试间隔 2 秒
+4. **确认处理**：收到服务器确认后，从待确认列表中移除消息
+5. **失败处理**：超过最大重试次数后，记录错误并放弃该消息
+
+### 优势
+
+- **端到端可靠性**：确保 ACK 消息真正到达服务器并被处理
+- **网络故障检测**：能够及时发现网络中断、服务器故障等问题
+- **自动重试**：网络抖动时自动恢复，提高系统稳定性
+- **监控友好**：提供详细的日志和统计信息，便于问题定位
+
+### 重要改进
+
+- **默认启用确认机制**：所有通过 `PublishAck` 发送的 ACK 消息都将自动包含 `message_id` 并启用确认机制
+- **提高可靠性**：彻底解决 "send failed, but message may still reach server" 的不确定性问题
+- **服务器端**：必须对所有带 `message_id` 的 ACK 消息回复 `ack_receipt` 确认
+- **向后兼容**：现有代码无需修改，自动享有新的可靠性保障
