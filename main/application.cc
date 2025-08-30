@@ -999,7 +999,13 @@ void Application::AudioLoop() {
                     SetDeviceState(kDeviceStateListening);
                     ESP_LOGI(TAG, "Alarm ring, begging status %d", device_state_);
                 }
-                protocol_->SendText(alarm_m_->get_now_alarm_name());
+                // 检查闹钟消息是否为空，避免发送空payload给服务端
+                std::string alarm_message = alarm_m_->get_now_alarm_name();
+                if (!alarm_message.empty()) {
+                    protocol_->SendText(alarm_message);
+                } else {
+                    ESP_LOGW(TAG, "闹钟消息为空，跳过发送以避免服务端日志洪水");
+                }
                 alarm_m_->ClearRing();
             }
         }
@@ -1712,11 +1718,19 @@ void Application::SendAlarmMessage() {
             ESP_LOGI(TAG, "闹钟消息已发送: %s", alarm_text.c_str());
         } else {
             ESP_LOGW(TAG, "无法解析闹钟名称结束位置，使用备用方案");
-            protocol_->SendText(alarm_message);
+            if (!alarm_message.empty()) {
+                protocol_->SendText(alarm_message);
+            } else {
+                ESP_LOGW(TAG, "备用方案：闹钟消息为空，跳过发送");
+            }
         }
     } else {
         ESP_LOGW(TAG, "闹钟消息格式异常，使用备用方案");
-        protocol_->SendText(alarm_message);
+        if (!alarm_message.empty()) {
+            protocol_->SendText(alarm_message);
+        } else {
+            ESP_LOGW(TAG, "备用方案：闹钟消息为空，跳过发送");
+        }
     }
 #endif
 }

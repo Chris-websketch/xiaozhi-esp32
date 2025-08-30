@@ -39,6 +39,12 @@ bool WebsocketProtocol::SendText(const std::string& text) {
         return false;
     }
 
+    // 防止发送空消息给服务端，避免日志洪水
+    if (text.empty()) {
+        ESP_LOGD(TAG, "尝试发送空文本消息，已跳过以避免服务端日志洪水");
+        return false;
+    }
+
     if (!websocket_->Send(text)) {
         ESP_LOGE(TAG, "Failed to send text: %s", text.c_str());
         SetError(Lang::Strings::SERVER_ERROR);
@@ -145,7 +151,21 @@ bool WebsocketProtocol::OpenAudioChannel() {
         } else {
             // Parse JSON data - 修复：创建null终止的字符串
             std::string json_string(data, len);  // 安全地创建字符串副本
+            
+            // 处理空消息情况
+            if (len == 0 || json_string.empty()) {
+                ESP_LOGD(TAG, "接收到空消息，可能是心跳信号");
+                return;
+            }
+            
             auto root = cJSON_Parse(json_string.c_str());
+            
+            // 检查JSON解析结果
+            if (root == NULL) {
+                ESP_LOGW(TAG, "JSON解析失败，消息长度: %zu, 内容: %.*s", len, (int)len, data);
+                return;
+            }
+            
             auto type = cJSON_GetObjectItem(root, "type");
             if (type != NULL) {
                 if (strcmp(type->valuestring, "hello") == 0) {
@@ -178,7 +198,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
                     
                     cJSON_Delete(wrapped_root);
                 } else {
-                    ESP_LOGE(TAG, "Missing message type, data: %s", json_string.c_str());
+                    ESP_LOGW(TAG, "消息缺少type字段且不是有效的IoT命令格式，长度: %zu", len);
                 }
             }
             cJSON_Delete(root);
