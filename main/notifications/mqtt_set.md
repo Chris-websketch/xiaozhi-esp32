@@ -25,7 +25,7 @@ https://github.com/eclipse-paho/paho.mqtt.java
 
 服务器发送消息，指定客户端设备接受订阅
 发布主题为：devices/{client_id}/downlink
-例如：devices/3095dd17-a431-4a49-90e5-2207a31d327e/downlink
+例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink
 
 # IoT 设备 MQTT 设置消息
 
@@ -86,11 +86,27 @@ https://github.com/eclipse-paho/paho.mqtt.java
   ]
 }
 ```
+
+## 5) MusicPlayer（音乐播放器界面控制）
+- 名称：`MusicPlayer`
+- 可用方法：
+  - `Show`（显示音乐播放器界面：持续时间 + 歌曲信息）
+  - `Hide`（隐藏音乐播放器界面）
+
+```json
+{
+  "type": "iot",
+  "commands": [
+    { "name": "MusicPlayer", "method": "Show", "parameters": { "duration_ms": 30000, "song_title": "夜曲", "artist_name": "周杰伦" } },
+    { "name": "MusicPlayer", "method": "Hide", "parameters": {} }
+  ]
+}
+```
 ## 设备控制
 
 服务器下发用于控制设备的系统/通知类消息，发布到设备专属下行主题：
 - 发布主题：devices/{client_id}/downlink
-- 例如：devices/3095dd17-a431-4a49-90e5-2207a31d327e/downlink
+- 例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink
 - QoS：2
 
 ### 1) 设备重启（system.reboot）
@@ -123,7 +139,7 @@ https://github.com/eclipse-paho/paho.mqtt.java
 ## 设备上报（uplink 遥测）
 
 - 发布主题：devices/{client_id}/uplink
-- 例如：devices/3095dd17-a431-4a49-90e5-2207a31d327e/uplink
+- 例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/uplink
 - 上报频率：每 30 秒（心跳任务定期上报）
 - QoS：0
 
@@ -154,10 +170,14 @@ https://github.com/eclipse-paho/paho.mqtt.java
     - alarms：数组，当前闹钟列表
   - ImageDisplay：图片显示状态
     - mode：字符串，显示模式（"animated" 或 "static"）
+  - MusicPlayer：音乐播放器状态
+    - visible：布尔值，界面是否可见
+    - song_title：字符串，当前歌曲标题（如果显示中）
+    - artist_name：字符串，当前艺术家名称（如果显示中）
 
 示例：
 ```json
-{"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"}}}
+{"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
 ```
 
 ## 指令执行结果上报（ACK）

@@ -129,6 +129,11 @@ private:
     bool LoadBinaryImageFile(int image_index); // 从二进制文件加载图片数据
     bool LoadRawImageFile(int image_index, size_t file_size); // 从原始RGB数据文件加载图片
     
+    // 空间管理和清理函数
+    bool CleanupTemporaryFiles(); // 清理临时文件和损坏文件
+    bool OptimizeSpiffsSpace(); // 优化SPIFFS空间碎片
+    size_t GetSpiffsFreeSpace(); // 获取SPIFFS可用空间
+    
     // 预载内部实现
     esp_err_t PreloadRemainingImagesImpl(bool silent, unsigned long time_budget_ms);
     

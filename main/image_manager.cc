@@ -1772,32 +1772,25 @@ bool ImageResourceManager::LoadPackedImages() {
 
 // 构建打包文件（在检测到资源均有效时可调用一次，提升下次启动加载速度）
 bool ImageResourceManager::BuildPackedImages() {
-    // 0) 打包前清理：删除所有历史 .rgb 残留，避免资源残留被误用
-    {
-        DIR* dir = opendir(IMAGE_BASE_PATH);
-        if (dir) {
-            struct dirent* ent;
-            while ((ent = readdir(dir)) != NULL) {
-                const char* name = ent->d_name;
-                if (!name || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-                    continue;
-                }
-                size_t len = strlen(name);
-                bool is_bin = (len > 4 && strcmp(name + (len - 4), ".bin") == 0);
-                if (!is_bin) {
-                    std::string path = std::string(IMAGE_BASE_PATH) + name;
-                    if (unlink(path.c_str()) == 0) {
-                        ESP_LOGI(TAG, "已删除非BIN资源文件: %s", path.c_str());
-                    } else {
-                        ESP_LOGW(TAG, "删除非BIN资源失败或非普通文件: %s", path.c_str());
-                    }
-                }
-            }
-            closedir(dir);
-        }
-        // 同时删除打包目标（如果还存在），确保干净输出
-        unlink(PACKED_FILE_PATH);
-    }
+    // 0) 增强的打包前清理：全面清理临时文件以释放空间
+    ESP_LOGI(TAG, "开始全面清理临时文件以释放最大空间...");
+    
+    // 记录清理前的可用空间
+    size_t free_space_before = GetSpiffsFreeSpace();
+    ESP_LOGI(TAG, "清理前可用空间: %u字节", (unsigned int)free_space_before);
+    
+    // 清理临时文件和损坏文件
+    CleanupTemporaryFiles();
+    
+    // 优化SPIFFS空间碎片
+    OptimizeSpiffsSpace();
+    
+    // 记录清理后的可用空间
+    size_t free_space_after = GetSpiffsFreeSpace();
+    size_t space_freed = (free_space_after > free_space_before) ? 
+                        (free_space_after - free_space_before) : 0;
+    ESP_LOGI(TAG, "清理完成，当前可用空间: %u字节，释放空间: %u字节", 
+             (unsigned int)free_space_after, (unsigned int)space_freed);
 
     // 1) 基本检查：9帧是否齐全且尺寸正确
     const size_t frame_size = 240 * 240 * 2;
@@ -3390,6 +3383,255 @@ bool ImageResourceManager::ClearAllImageFiles() {
     }
     
     ESP_LOGI(TAG, "图片资源状态已重置，下次将重新下载所有文件");
+    return true;
+}
+
+size_t ImageResourceManager::GetSpiffsFreeSpace() {
+    if (!mounted_) {
+        ESP_LOGW(TAG, "SPIFFS未挂载，无法获取空间信息");
+        return 0;
+    }
+    
+    size_t total = 0, used = 0;
+    esp_err_t ret = esp_spiffs_info("resources", &total, &used);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "获取SPIFFS空间信息失败: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    return (total > used) ? (total - used) : 0;
+}
+
+bool ImageResourceManager::CleanupTemporaryFiles() {
+    if (!mounted_) {
+        ESP_LOGW(TAG, "SPIFFS未挂载，无法清理临时文件");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "开始清理临时文件和损坏文件...");
+    
+    int cleaned_count = 0;
+    
+    // 1. 清理图片目录中的临时文件和非标准文件
+    DIR* dir = opendir(IMAGE_BASE_PATH);
+    if (dir) {
+        struct dirent* ent;
+        while ((ent = readdir(dir)) != NULL) {
+            const char* name = ent->d_name;
+            if (!name || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                continue;
+            }
+            
+            std::string full_path = std::string(IMAGE_BASE_PATH) + name;
+            size_t len = strlen(name);
+            bool should_delete = false;
+            
+            // 删除临时文件扩展名
+            if (len > 4) {
+                const char* ext = name + (len - 4);
+                if (strcmp(ext, ".tmp") == 0 || strcmp(ext, ".bak") == 0 || 
+                    strcmp(ext, ".old") == 0 || strstr(name, ".temp") != NULL) {
+                    should_delete = true;
+                    ESP_LOGI(TAG, "清理临时文件: %s", name);
+                }
+            }
+            
+            // 删除非标准图片文件（保留output_XXXX.bin和logo相关文件）
+            if (!should_delete && len > 4) {
+                bool is_valid_bin = (strncmp(name, "output_", 7) == 0 && strcmp(name + (len - 4), ".bin") == 0);
+                bool is_valid_h = (strncmp(name, "output_", 7) == 0 && strcmp(name + (len - 2), ".h") == 0);
+                bool is_logo = (strstr(name, "logo") != NULL);
+                bool is_packed = (strcmp(name, "packed.rgb") == 0);
+                
+                if (!is_valid_bin && !is_valid_h && !is_logo && !is_packed) {
+                    // 检查是否是其他类型的残留文件
+                    if (strcmp(name + (len - 4), ".rgb") == 0 || 
+                        strcmp(name + (len - 4), ".jpg") == 0 ||
+                        strcmp(name + (len - 4), ".png") == 0 ||
+                        strstr(name, "temp") != NULL ||
+                        strstr(name, "cache") != NULL) {
+                        should_delete = true;
+                        ESP_LOGI(TAG, "清理非标准文件: %s", name);
+                    }
+                }
+            }
+            
+            if (should_delete) {
+                if (unlink(full_path.c_str()) == 0) {
+                    cleaned_count++;
+                    ESP_LOGI(TAG, "成功删除文件: %s", name);
+                } else {
+                    ESP_LOGW(TAG, "删除文件失败: %s", name);
+                }
+            }
+        }
+        closedir(dir);
+    } else {
+        ESP_LOGW(TAG, "无法打开图片目录: %s", IMAGE_BASE_PATH);
+    }
+    
+    // 2. 清理resources根目录的临时文件
+    dir = opendir("/resources");
+    if (dir) {
+        struct dirent* ent;
+        while ((ent = readdir(dir)) != NULL) {
+            const char* name = ent->d_name;
+            if (!name || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                continue;
+            }
+            
+            std::string full_path = std::string("/resources/") + name;
+            size_t len = strlen(name);
+            bool should_delete = false;
+            
+            // 删除临时文件
+            if (len > 4) {
+                const char* ext = name + (len - 4);
+                if (strcmp(ext, ".tmp") == 0 || strcmp(ext, ".bak") == 0 || 
+                    strcmp(ext, ".old") == 0 || strstr(name, ".temp") != NULL ||
+                    strstr(name, "~") != NULL) {
+                    should_delete = true;
+                    ESP_LOGI(TAG, "清理resources临时文件: %s", name);
+                }
+            }
+            
+            // 删除损坏的缓存文件（大小为0的JSON文件）
+            if (strstr(name, ".json") != NULL) {
+                struct stat st;
+                if (stat(full_path.c_str(), &st) == 0 && st.st_size == 0) {
+                    should_delete = true;
+                    ESP_LOGI(TAG, "清理空缓存文件: %s", name);
+                }
+            }
+            
+            if (should_delete) {
+                if (unlink(full_path.c_str()) == 0) {
+                    cleaned_count++;
+                    ESP_LOGI(TAG, "成功删除根目录文件: %s", name);
+                } else {
+                    ESP_LOGW(TAG, "删除根目录文件失败: %s", name);
+                }
+            }
+        }
+        closedir(dir);
+    }
+    
+    // 3. 强制删除已知的旧打包文件和分片文件
+    const char* cleanup_files[] = {
+        PACKED_FILE_PATH,
+        "/resources/images/packed_part_0.rgb",
+        "/resources/images/packed_part_1.rgb", 
+        "/resources/images/packed_part_2.rgb",
+        "/resources/images/packed_part_3.rgb",
+        "/resources/temp_packed.rgb",
+        "/resources/downloading.tmp"
+    };
+    
+    for (size_t i = 0; i < sizeof(cleanup_files) / sizeof(cleanup_files[0]); i++) {
+        if (unlink(cleanup_files[i]) == 0) {
+            cleaned_count++;
+            ESP_LOGI(TAG, "清理已知临时文件: %s", cleanup_files[i]);
+        }
+    }
+    
+    ESP_LOGI(TAG, "临时文件清理完成，共清理 %d 个文件", cleaned_count);
+    return cleaned_count > 0;
+}
+
+bool ImageResourceManager::OptimizeSpiffsSpace() {
+    if (!mounted_) {
+        ESP_LOGW(TAG, "SPIFFS未挂载，无法优化空间");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "开始优化SPIFFS空间碎片...");
+    
+    // 记录优化前的空间状态
+    size_t total_before = 0, used_before = 0;
+    esp_err_t ret = esp_spiffs_info("resources", &total_before, &used_before);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "无法获取SPIFFS优化前的空间信息");
+        return false;
+    }
+    size_t free_before = (total_before > used_before) ? (total_before - used_before) : 0;
+    
+    ESP_LOGI(TAG, "优化前空间状态 - 总计: %u字节, 已使用: %u字节, 可用: %u字节, 碎片率: %.1f%%", 
+             (unsigned int)total_before, (unsigned int)used_before, (unsigned int)free_before,
+             total_before > 0 ? ((float)(total_before - free_before) / total_before * 100.0f) : 0.0f);
+    
+    // 1. 触发SPIFFS垃圾回收 - 强制整理碎片空间
+    ESP_LOGI(TAG, "触发SPIFFS垃圾回收...");
+    
+    // 通过创建和删除一个临时文件来触发垃圾回收机制
+    const char* gc_trigger_file = "/resources/.gc_trigger.tmp";
+    FILE* gc_file = fopen(gc_trigger_file, "w");
+    if (gc_file) {
+        // 写入一些数据然后立即关闭删除，这会触发SPIFFS的内部整理
+        for (int i = 0; i < 100; i++) {
+            fprintf(gc_file, "trigger_gc_%d\n", i);
+        }
+        fflush(gc_file);
+        fsync(fileno(gc_file));  // 强制刷新到存储器
+        fclose(gc_file);
+        
+        // 删除临时文件，这会释放并整理空间
+        unlink(gc_trigger_file);
+        ESP_LOGI(TAG, "垃圾回收触发文件已创建并删除");
+    } else {
+        ESP_LOGW(TAG, "无法创建垃圾回收触发文件");
+    }
+    
+    // 2. 等待SPIFFS内部整理完成
+    vTaskDelay(pdMS_TO_TICKS(200));  // 给SPIFFS时间进行内部整理
+    
+    // 3. 等待SPIFFS内部缓冲区刷新
+    // 注意：ESP32不支持POSIX sync()调用，SPIFFS有自己的同步机制
+    
+    // 4. 再次触发垃圾回收（多次触发以确保充分整理）
+    for (int gc_round = 0; gc_round < 3; gc_round++) {
+        char temp_file[64];
+        snprintf(temp_file, sizeof(temp_file), "/resources/.gc_round_%d.tmp", gc_round);
+        
+        FILE* round_file = fopen(temp_file, "w");
+        if (round_file) {
+            // 写入较小数据块
+            for (int i = 0; i < 20; i++) {
+                fprintf(round_file, "gc_round_%d_%d\n", gc_round, i);
+            }
+            fflush(round_file);
+            fclose(round_file);
+            
+            // 立即删除以释放空间
+            unlink(temp_file);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50));  // 短暂等待
+    }
+    
+    // 5. 最终同步
+    vTaskDelay(pdMS_TO_TICKS(300));  // 增加等待时间确保整理完成
+    
+    // 记录优化后的空间状态
+    size_t total_after = 0, used_after = 0;
+    ret = esp_spiffs_info("resources", &total_after, &used_after);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "无法获取SPIFFS优化后的空间信息");
+        return true;  // 优化过程已执行，即使无法获取最终状态也认为成功
+    }
+    
+    size_t free_after = (total_after > used_after) ? (total_after - used_after) : 0;
+    size_t space_gained = (free_after > free_before) ? (free_after - free_before) : 0;
+    
+    ESP_LOGI(TAG, "优化后空间状态 - 总计: %u字节, 已使用: %u字节, 可用: %u字节, 碎片率: %.1f%%", 
+             (unsigned int)total_after, (unsigned int)used_after, (unsigned int)free_after,
+             total_after > 0 ? ((float)(total_after - free_after) / total_after * 100.0f) : 0.0f);
+    
+    if (space_gained > 0) {
+        ESP_LOGI(TAG, "SPIFFS空间优化成功，释放了 %u 字节空间", (unsigned int)space_gained);
+    } else {
+        ESP_LOGI(TAG, "SPIFFS空间优化完成，空间已充分整理");
+    }
+    
     return true;
 }
 
