@@ -133,6 +133,7 @@ private:
     bool CleanupTemporaryFiles(); // 清理临时文件和损坏文件
     bool OptimizeSpiffsSpace(); // 优化SPIFFS空间碎片
     size_t GetSpiffsFreeSpace(); // 获取SPIFFS可用空间
+    bool FormatResourcesPartition(); // 强制格式化重置resources分区
     
     // 预载内部实现
     esp_err_t PreloadRemainingImagesImpl(bool silent, unsigned long time_budget_ms);
