@@ -1596,18 +1596,44 @@ private:
                 
                 // 重新连接WiFi
                 auto& wifi_station = WifiStation::GetInstance();
-                if (!wifi_station.IsConnected()) {
-                    ESP_LOGI(TAG, "重新连接WiFi...");
-                    wifi_station.Start();
+                ESP_LOGI(TAG, "正在重新初始化WiFi...");
+                wifi_station.Start();
+                
+                // 等待WiFi完全初始化并连接，最多等待15秒
+                int wifi_wait_count = 0;
+                const int max_wifi_wait = 150; // 15秒 (150 * 100ms)
+                
+                ESP_LOGI(TAG, "等待WiFi完全初始化和连接...");
+                while (!IsWifiFullyConnected() && wifi_wait_count < max_wifi_wait) {
+                    vTaskDelay(pdMS_TO_TICKS(100));  // 等待100ms
+                    wifi_wait_count++;
+                    
+                    // 每2秒打印一次等待状态
+                    if (wifi_wait_count % 20 == 0) {
+                        ESP_LOGI(TAG, "等待WiFi连接... (%d/%d 秒)", wifi_wait_count/10, max_wifi_wait/10);
+                    }
+                }
+                
+                // 检查WiFi是否真正可用
+                if (IsWifiFullyConnected()) {
+                    ESP_LOGI(TAG, "WiFi完全连接成功，禁用WiFi省电模式");
+                    SetPowerSaveMode(false);
+                    ESP_LOGI(TAG, "WiFi省电模式已禁用");
+                    
+                    // 启动MQTT通知服务
+                    auto& app_mqtt = Application::GetInstance();
+                    ESP_LOGI(TAG, "WiFi已完全连接，重新启动MQTT通知服务...");
+                    app_mqtt.StartMqttNotifier();
+                } else {
+                    ESP_LOGW(TAG, "WiFi连接超时或驱动未完全初始化，跳过省电模式设置和MQTT连接");
                 }
                 
                 // 恢复图片轮播任务
                 ResumeImageTask();
                 ESP_LOGI(TAG, "图片轮播任务已恢复");
                 
-                // 禁用WiFi省电模式
-                SetPowerSaveMode(false);
-                ESP_LOGI(TAG, "WiFi省电模式已禁用");
+                // 延迟禁用WiFi省电模式，等待WiFi完全启动后设置
+                // 移至WiFi连接成功后进行
                 
                 ESP_LOGI(TAG, "从超级省电模式完全恢复到正常状态");
                 return; // 从超级省电模式唤醒时只做恢复操作，不执行其他功能
@@ -2067,10 +2093,12 @@ private:
     void EnterDeepSleepMode() {
         ESP_LOGI(TAG, "进入超级省电模式 - 检查闹钟状态");
         
+        // 获取Application实例，供整个函数使用
+        auto& app = Application::GetInstance();
+        
         // 检查是否有活动闹钟
         bool has_active_alarm = false;
 #if CONFIG_USE_ALARM
-        auto& app = Application::GetInstance();
         if (app.alarm_m_ != nullptr) {
             time_t now = time(NULL);
             Alarm* next_alarm = app.alarm_m_->GetProximateAlarm(now);
@@ -2107,7 +2135,6 @@ private:
         // 3. 根据是否有活动闹钟决定音频系统的处理方式
         if (!has_active_alarm) {
             // 如果没有活动闹钟，完全暂停音频系统
-            auto& app = Application::GetInstance();
             app.PauseAudioProcessing();
             auto codec = GetAudioCodec();
             if (codec) {
@@ -2125,7 +2152,27 @@ private:
             ESP_LOGI(TAG, "有活动闹钟，保留音频输出功能");
         }
         
-        // 4. 关闭WiFi（闹钟触发时会重新连接）
+        // 4. 先关闭MQTT连接，避免WiFi断开后的连接错误
+        if (app.protocol_) {
+            ESP_LOGI(TAG, "正在关闭MQTT协议连接...");
+            // 关闭音频通道会同时清理MQTT连接
+            app.protocol_->CloseAudioChannel();
+            ESP_LOGI(TAG, "MQTT协议连接已关闭");
+        }
+        
+        // 关闭音乐播放器MQTT控制器
+        if (mqtt_music_handler_) {
+            ESP_LOGI(TAG, "正在断开音乐播放器MQTT连接...");
+            mqtt_music_handler_->Disconnect();
+            ESP_LOGI(TAG, "音乐播放器MQTT连接已断开");
+        }
+        
+        // 5. 关闭MQTT通知服务
+        ESP_LOGI(TAG, "正在停止MQTT通知服务...");
+        app.StopMqttNotifier();
+        ESP_LOGI(TAG, "MQTT通知服务已停止");
+        
+        // 6. 关闭WiFi（闹钟触发时会重新连接）
         auto& wifi_station = WifiStation::GetInstance();
         if (wifi_station.IsConnected()) {
             wifi_station.Stop();
@@ -2134,14 +2181,14 @@ private:
             ESP_LOGI(TAG, "WiFi已经处于断开状态");
         }
         
-        // 5. 设置屏幕亮度为1%（保持最低亮度显示）
+        // 7. 设置屏幕亮度为1%（保持最低亮度显示）
         auto backlight = GetBacklight();
         if (backlight) {
             backlight->SetBrightness(1);  // 设置为最低亮度1%
             ESP_LOGI(TAG, "屏幕亮度设置为1%%");
         }
         
-        // 6. 降低CPU频率到最低以节省功耗
+        // 8. 降低CPU频率到最低以节省功耗
         esp_pm_config_t pm_config = {
             .max_freq_mhz = 40,      // 最低CPU频率40MHz
             .min_freq_mhz = 40,      // 最低CPU频率40MHz
@@ -2150,7 +2197,7 @@ private:
         esp_pm_configure(&pm_config);
         ESP_LOGI(TAG, "CPU频率降至40MHz，轻睡眠已禁用以保持闹钟功能");
         
-        // 7. 设置超级省电标志，让系统知道当前处于最低功耗模式
+        // 9. 设置超级省电标志，让系统知道当前处于最低功耗模式
         ESP_LOGI(TAG, "超级省电模式激活完成 - 闹钟功能%s", 
                  has_active_alarm ? "保持活跃" : "已关闭");
     }
@@ -2792,6 +2839,41 @@ public:
         return is_in_super_power_save_;
     }
     
+    /**
+     * @brief 可靠的WiFi连接状态检查，确保WiFi驱动已初始化且真正连接
+     * @return true如果WiFi驱动已初始化且连接成功
+     */
+    bool IsWifiFullyConnected() {
+        // 首先检查WiFi驱动是否已初始化
+        wifi_mode_t mode;
+        esp_err_t err = esp_wifi_get_mode(&mode);
+        
+        if (err == ESP_ERR_WIFI_NOT_INIT) {
+            ESP_LOGD(TAG, "WiFi驱动未初始化");
+            return false;
+        }
+        
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "WiFi状态检查失败: %s", esp_err_to_name(err));
+            return false;
+        }
+        
+        // 检查WiFi是否真正连接
+        auto& wifi_station = WifiStation::GetInstance();
+        bool is_connected = wifi_station.IsConnected();
+        
+        // 额外检查：尝试获取IP地址
+        std::string ip = wifi_station.GetIpAddress();
+        bool has_valid_ip = !ip.empty() && ip != "0.0.0.0";
+        
+        ESP_LOGD(TAG, "WiFi状态检查: 驱动已初始化=%s, 连接状态=%s, IP地址=%s", 
+                 err == ESP_OK ? "是" : "否",
+                 is_connected ? "已连接" : "未连接", 
+                 ip.c_str());
+                 
+        return is_connected && has_valid_ip;
+    }
+    
     // 从超级省电模式唤醒（由闹钟触发）
     void WakeFromSuperPowerSaveMode() {
         if (!is_in_super_power_save_) {
@@ -2833,9 +2915,43 @@ public:
         
         // 重新连接WiFi
         auto& wifi_station = WifiStation::GetInstance();
-        if (!wifi_station.IsConnected()) {
-            ESP_LOGI(TAG, "重新连接WiFi...");
-            wifi_station.Start();
+        ESP_LOGI(TAG, "正在重新初始化WiFi...");
+        wifi_station.Start();
+        
+        // 等待WiFi完全初始化并连接，最多等待15秒
+        int wifi_wait_count = 0;
+        const int max_wifi_wait = 150; // 15秒 (150 * 100ms)
+        
+        ESP_LOGI(TAG, "等待WiFi完全初始化和连接...");
+        while (!IsWifiFullyConnected() && wifi_wait_count < max_wifi_wait) {
+            vTaskDelay(pdMS_TO_TICKS(100));  // 等待100ms
+            wifi_wait_count++;
+            
+            // 每2秒打印一次等待状态
+            if (wifi_wait_count % 20 == 0) {
+                ESP_LOGI(TAG, "等待WiFi连接... (%d/%d 秒)", wifi_wait_count/10, max_wifi_wait/10);
+            }
+        }
+        
+        // 检查WiFi是否真正可用并启动MQTT服务
+        if (IsWifiFullyConnected()) {
+            ESP_LOGI(TAG, "WiFi完全连接成功，重新初始化MQTT连接...");
+            
+            // 重新启动MQTT通知服务
+            ESP_LOGI(TAG, "重新启动MQTT通知服务...");
+            app.StartMqttNotifier();
+            
+            // 重新连接音乐播放器MQTT控制器
+            if (mqtt_music_handler_) {
+                ESP_LOGI(TAG, "重新连接音乐播放器MQTT...");
+                if (mqtt_music_handler_->Connect()) {
+                    ESP_LOGI(TAG, "音乐播放器MQTT重连成功");
+                } else {
+                    ESP_LOGW(TAG, "音乐播放器MQTT重连失败");
+                }
+            }
+        } else {
+            ESP_LOGW(TAG, "WiFi连接超时或驱动未完全初始化，跳过MQTT连接");
         }
         
         // 恢复图片轮播任务
@@ -2849,7 +2965,9 @@ public:
             ESP_LOGI(TAG, "省电定时器已重新启用");
         }
         
-        // 禁用WiFi省电模式
+        // 等待WiFi初始化完成后禁用省电模式
+        vTaskDelay(pdMS_TO_TICKS(1000));  // 等待WiFi初始化
+        ESP_LOGI(TAG, "禁用WiFi省电模式");
         SetPowerSaveMode(false);
         
         ESP_LOGI(TAG, "从超级省电模式完全恢复 - 闹钟触发唤醒完成");
@@ -2985,7 +3103,17 @@ public:
             power_save_timer_->WakeUp();  // 唤醒省电定时器
         }
         
-        // 检查应用状态，避免在WiFi未初始化时调用WiFi功能
+        // 首先检查WiFi驱动是否已初始化
+        wifi_mode_t mode;
+        esp_err_t err = esp_wifi_get_mode(&mode);
+        
+        if (err == ESP_ERR_WIFI_NOT_INIT) {
+            // WiFi驱动未初始化，安全跳过
+            ESP_LOGW(TAG, "WiFi驱动未初始化，跳过省电模式设置 (enabled=%s)", enabled ? "true" : "false");
+            return;
+        }
+        
+        // 检查应用状态，避免在WiFi未完全启动时调用WiFi功能
         auto& app = Application::GetInstance();
         DeviceState currentState = app.GetDeviceState();
         

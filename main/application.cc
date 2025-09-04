@@ -1798,6 +1798,28 @@ void Application::HandleProtocolTimeout() {
 }
 
 /**
+ * @brief 停止MQTT通知服务，用于省电模式
+ */
+void Application::StopMqttNotifier() {
+    if (notifier_) {
+        ESP_LOGI(TAG, "正在停止MQTT通知服务...");
+        notifier_->Stop();
+        ESP_LOGI(TAG, "MQTT通知服务已停止");
+    }
+}
+
+/**
+ * @brief 启动MQTT通知服务，用于从省电模式恢复
+ */
+void Application::StartMqttNotifier() {
+    if (notifier_) {
+        ESP_LOGI(TAG, "正在启动MQTT通知服务...");
+        notifier_->Start();
+        ESP_LOGI(TAG, "MQTT通知服务已启动");
+    }
+}
+
+/**
  * @brief 获取设备配置信息
  * 从NVS存储中读取MQTT配置参数
  * @return DeviceConfig 设备配置结构，包含MQTT连接参数

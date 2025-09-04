@@ -112,6 +112,16 @@ public:
     void SendAlarmMessage();
     
     /**
+     * @brief 停止MQTT通知服务，用于省电模式
+     */
+    void StopMqttNotifier();
+    
+    /**
+     * @brief 启动MQTT通知服务，用于从省电模式恢复
+     */
+    void StartMqttNotifier();
+    
+    /**
      * @brief 获取设备配置信息
      * @return DeviceConfig 设备配置结构，包含MQTT连接参数
      */
