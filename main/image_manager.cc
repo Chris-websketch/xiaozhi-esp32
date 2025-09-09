@@ -1915,6 +1915,25 @@ bool ImageResourceManager::BuildPackedImages() {
                 if (w == r) break;
                 
                 ESP_LOGW(TAG, "第%d帧写入重试%d次(写入%zu字节，期望%zu字节, errno=%d:%s)", i, retry+1, w, r, errno, strerror(errno));
+                
+                // 检测到空间不足错误时，直接调用SPIFFS重置逻辑
+                if (errno == 28) { // ENOSPC: No space left on device
+                    ESP_LOGW(TAG, "检测到磁盘空间不足错误(errno=28)，立即执行SPIFFS重置策略");
+                    fclose(in);
+                    free(buf);
+                    fclose(out);
+                    unlink(PACKED_FILE_PATH);
+                    
+                    if (FormatResourcesPartition()) {
+                        ESP_LOGI(TAG, "SPIFFS重置成功，系统将重启重新获取所有资源");
+                        vTaskDelay(pdMS_TO_TICKS(3000)); // 等待3秒让日志输出完成
+                        esp_restart();
+                    } else {
+                        ESP_LOGE(TAG, "SPIFFS重置失败，请手动检查");
+                        return false;
+                    }
+                }
+                
                 fflush(out);
                 vTaskDelay(pdMS_TO_TICKS(10)); // 10ms延时
             }
@@ -3724,70 +3743,9 @@ bool ImageResourceManager::FormatResourcesPartition() {
         return false;
     }
     
-    // 格式化成功后等待更长时间
-    ESP_LOGI(TAG, "格式化完成，等待分区状态稳定...");
-    vTaskDelay(pdMS_TO_TICKS(2000));  // 等待2秒让分区状态完全稳定
-    
-    // 重新挂载分区（带重试机制）
-    ESP_LOGI(TAG, "重新挂载resources分区...");
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/resources",
-        .partition_label = "resources", 
-        .max_files = 30,
-        .format_if_mount_failed = false  // 禁用自动格式化，我们已经手动格式化了
-    };
-    
-    esp_err_t mount_ret = ESP_FAIL;
-    for (int mount_retry = 0; mount_retry < 5; mount_retry++) {  // 增加到5次重试
-        mount_ret = esp_vfs_spiffs_register(&conf);
-        if (mount_ret == ESP_OK) {
-            ESP_LOGI(TAG, "resources分区重新挂载成功");
-            mounted_ = true;
-            break;
-        } else {
-            ESP_LOGW(TAG, "重新挂载resources分区失败 (重试%d/5): %s", mount_retry + 1, esp_err_to_name(mount_ret));
-            
-            // 如果是状态错误，尝试更长的等待时间
-            if (mount_ret == ESP_ERR_INVALID_STATE) {
-                vTaskDelay(pdMS_TO_TICKS(2000 * (mount_retry + 1)));  // 递增等待时间
-            } else {
-                vTaskDelay(pdMS_TO_TICKS(1000));
-            }
-        }
-    }
-    
-    if (mount_ret != ESP_OK) {
-        ESP_LOGE(TAG, "重新挂载resources分区最终失败: %s", esp_err_to_name(mount_ret));
-        // 尝试最后一次挂载，启用自动格式化
-        ESP_LOGI(TAG, "尝试启用自动格式化的最后一次挂载...");
-        conf.format_if_mount_failed = true;
-        mount_ret = esp_vfs_spiffs_register(&conf);
-        if (mount_ret == ESP_OK) {
-            ESP_LOGI(TAG, "使用自动格式化重新挂载成功");
-            mounted_ = true;
-        } else {
-            ESP_LOGE(TAG, "最终挂载失败: %s", esp_err_to_name(mount_ret));
-            return false;
-        }
-    }
-    
-    // 确保存在图片目录
-    CreateDirectoryIfNotExists(IMAGE_BASE_PATH);
-    
-    // 验证格式化结果
-    vTaskDelay(pdMS_TO_TICKS(500));  // 短暂等待确保目录创建完成
-    size_t total = 0, used = 0;
-    esp_err_t info_ret = esp_spiffs_info("resources", &total, &used);
-    if (info_ret == ESP_OK) {
-        size_t free_space = (total > used) ? (total - used) : 0;
-        ESP_LOGI(TAG, "格式化后分区状态 - 总计: %u字节, 已使用: %u字节, 可用: %u字节", 
-                 (unsigned int)total, (unsigned int)used, (unsigned int)free_space);
-        ESP_LOGI(TAG, "resources分区格式化重置完成，分区已完全清空且可用空间充足");
-        return true;
-    } else {
-        ESP_LOGW(TAG, "无法获取格式化后的分区信息: %s，但格式化和挂载过程已完成", esp_err_to_name(info_ret));
-        return true;  // 挂载成功，即使无法获取信息也认为成功
-    }
+    // 格式化成功，直接返回成功，让调用方处理重启
+    ESP_LOGI(TAG, "resources分区格式化成功，系统需要重启以重新挂载分区");
+    return true;
 }
 
 esp_err_t ImageResourceManager::PreloadRemainingImages() {
