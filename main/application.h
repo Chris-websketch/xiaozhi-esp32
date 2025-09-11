@@ -18,6 +18,7 @@
 #include "ota.h"
 #include "background_task.h"
 #include "memory/memory_manager.h"
+#include "system_info.h"
 
 /**
  * @brief 设备配置结构

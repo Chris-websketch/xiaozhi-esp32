@@ -20,6 +20,7 @@
 #include <cJSON.h>
 #include <driver/gpio.h>
 #include <arpa/inet.h>
+#include <wifi_station.h>
 
 #define TAG "Application"
 
@@ -79,6 +80,19 @@ Application::~Application() {
 }
 
 void Application::CheckNewVersion() {
+    // 获取设备地理位置信息
+    ESP_LOGI(TAG, "获取设备地理位置信息...");
+    GeoLocationInfo location = SystemInfo::GetCountryInfo();
+    if (location.is_valid) {
+        ESP_LOGI(TAG, "设备地理位置: IP=%s, 国家=%s", 
+                 location.ip_address.c_str(), location.country_code.c_str());
+        if (!location.country_name.empty()) {
+            ESP_LOGI(TAG, "国家名称: %s", location.country_name.c_str());
+        }
+    } else {
+        ESP_LOGW(TAG, "无法获取地理位置信息");
+    }
+    
     // 获取配置管理器实例
     const auto& config = ConfigManager::GetInstance().get_config();
     int retry_count = 0;
@@ -878,13 +892,63 @@ void Application::OnClockTimer() {
         }
 
         // If we have synchronized server time, set the status to clock "HH:MM" if the device is idle
+        // 调试：显示状态栏更新条件
+        static int status_debug_counter = 0;
+        status_debug_counter++;
+        if (status_debug_counter % 100 == 0) { // 每100次循环打印一次
+            const char* state_names[] = {"Unknown", "Starting", "WifiConfiguring", "Idle", "Connecting", "Listening", "Speaking", "Upgrading", "Activating", "FatalError"};
+            const char* state_name = ((int)device_state_ < 10) ? state_names[(int)device_state_] : "InvalidState";
+            ESP_LOGI(TAG, "Status bar update check: HasServerTime=%s, DeviceState=%s(%d)", 
+                     ota_.HasServerTime() ? "true" : "false", state_name, (int)device_state_);
+        }
+        
         if (ota_.HasServerTime()) {
             if (device_state_ == kDeviceStateIdle) {
                 Schedule([this]() {
-                    // Set status to clock "HH:MM"
+                    // Set status to clock "HH:MM" with timezone conversion
                     time_t now = time(NULL);
+                    struct tm timeinfo;
+                    localtime_r(&now, &timeinfo);
+                    
+                    // 获取地理位置信息并进行时区转换（静态缓存避免重复调用）
+                    static GeoLocationInfo status_location_cache;
+                    static bool status_location_initialized = false;
+                    
+                    // 调试：显示当前状态
+                    static int debug_counter = 0;
+                    debug_counter++;
+                    if (debug_counter % 30 == 0) { // 每30次调用打印一次状态
+                        ESP_LOGI(TAG, "Status bar debug: initialized=%s, valid=%s, WiFi=%s", 
+                                 status_location_initialized ? "true" : "false",
+                                 status_location_cache.is_valid ? "true" : "false", 
+                                 WifiStation::GetInstance().IsConnected() ? "true" : "false");
+                    }
+                    
+                    // 只在WiFi连接成功且未初始化时获取地理位置
+                    if (!status_location_initialized && WifiStation::GetInstance().IsConnected()) {
+                        ESP_LOGI(TAG, "Status bar: Getting geolocation for timezone conversion...");
+                        status_location_cache = SystemInfo::GetCountryInfo();
+                        if (status_location_cache.is_valid) {
+                            status_location_initialized = true;
+                            ESP_LOGI(TAG, "Status bar timezone initialized for country %s (UTC%+d)", 
+                                     status_location_cache.country_code.c_str(), status_location_cache.timezone_offset);
+                        } else {
+                            ESP_LOGW(TAG, "Status bar: Failed to get valid geolocation info");
+                        }
+                    }
+                    
+                    // 如果获取到有效的地理位置信息，进行时区转换
+                    if (status_location_cache.is_valid && status_location_cache.timezone_offset != 8) {
+                        struct tm original_time = timeinfo;
+                        timeinfo = SystemInfo::ConvertFromBeijingTime(timeinfo, status_location_cache.timezone_offset);
+                        ESP_LOGI(TAG, "Status bar time converted: %02d:%02d -> %02d:%02d (UTC%+d)", 
+                                 original_time.tm_hour, original_time.tm_min,
+                                 timeinfo.tm_hour, timeinfo.tm_min, 
+                                 status_location_cache.timezone_offset);
+                    }
+                    
                     char time_str[64];
-                    strftime(time_str, sizeof(time_str), "%H:%M  ", localtime(&now));
+                    strftime(time_str, sizeof(time_str), "%H:%M  ", &timeinfo);
                     Board::GetInstance().GetDisplay()->SetStatus(time_str);
                 });
             }

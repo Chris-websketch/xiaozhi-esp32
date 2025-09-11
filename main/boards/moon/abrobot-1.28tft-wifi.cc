@@ -867,6 +867,42 @@ public:
             time(&now);
             localtime_r(&now, &timeinfo);
             
+            // 获取地理位置信息并进行时区转换
+            static GeoLocationInfo location_cache; // 缓存地理位置信息
+            static bool location_initialized = false;
+            static bool wifi_was_connected = false;
+            
+            // 检查WiFi连接状态
+            bool wifi_connected = WifiStation::GetInstance().IsConnected();
+            
+            // 只有在WiFi连接成功后才尝试获取地理位置
+            if (wifi_connected && !location_initialized) {
+                // WiFi刚连接成功，首次尝试获取地理位置
+                if (!wifi_was_connected) {
+                    ESP_LOGI("ClockTimer", "WiFi connected, attempting to get geolocation for timezone");
+                    location_cache = SystemInfo::GetCountryInfo();
+                    
+                    if (location_cache.is_valid) {
+                        location_initialized = true;
+                        ESP_LOGI("ClockTimer", "Clock timezone initialized for country %s (UTC%+d)", 
+                                 location_cache.country_code.c_str(), location_cache.timezone_offset);
+                    } else {
+                        ESP_LOGD("ClockTimer", "Geolocation not available yet, using Beijing time");
+                    }
+                }
+            }
+            
+            // 更新WiFi连接状态记录
+            wifi_was_connected = wifi_connected;
+            
+            // 如果获取到有效的地理位置信息，进行时区转换
+            if (location_cache.is_valid && location_cache.timezone_offset != 8) {
+                // 当前时间是北京时间，需要转换为本地时区
+                timeinfo = SystemInfo::ConvertFromBeijingTime(timeinfo, location_cache.timezone_offset);
+                ESP_LOGD("ClockTimer", "Time converted from Beijing to local timezone UTC%+d", 
+                         location_cache.timezone_offset);
+            }
+            
             // 获取电池状态（不需要锁，用于调试日志）
             int battery_level;
             bool charging, discharging;
