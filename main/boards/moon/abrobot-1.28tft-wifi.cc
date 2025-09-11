@@ -2256,13 +2256,24 @@ private:
 
     // 检查图片资源更新
     void CheckImageResources() {
+        ESP_LOGI(TAG, "图片资源检查任务开始执行");
+        ESP_LOGI(TAG, "当前任务可用堆栈: %u 字节", uxTaskGetStackHighWaterMark(NULL));
+        ESP_LOGI(TAG, "当前可用内存: %" PRIu32 " 字节", esp_get_free_heap_size());
+        
         auto& image_manager = ImageResourceManager::GetInstance();
         
         // 等待WiFi连接
         auto& wifi = WifiStation::GetInstance();
-        while (!wifi.IsConnected()) {
-            ESP_LOGI(TAG, "等待WiFi连接以检查图片资源...");
+        int wifi_wait_count = 0;
+        while (!wifi.IsConnected() && wifi_wait_count < 30) { // 最多等待60秒
+            ESP_LOGI(TAG, "等待WiFi连接以检查图片资源... (%d/30)", wifi_wait_count + 1);
             vTaskDelay(pdMS_TO_TICKS(2000));  // 从3秒减少到2秒
+            wifi_wait_count++;
+        }
+        
+        if (!wifi.IsConnected()) {
+            ESP_LOGE(TAG, "WiFi连接超时，图片资源检查任务退出");
+            return;
         }
         
         ESP_LOGI(TAG, "WiFi已连接，优化等待策略检查开机提示音...");
@@ -2270,40 +2281,59 @@ private:
         // 优化：减少等待开机提示音的时间，提高检查频率
         auto& app = Application::GetInstance();
         int wait_count = 0;
-        const int max_wait_time = 5; // 从8秒减少到5秒
+        const int max_wait_time = 3; // 进一步从5秒减少到3秒
         bool audio_finished = false;
         
-        while (wait_count < max_wait_time && !audio_finished) {
-            DeviceState state = app.GetDeviceState();
-            bool queue_empty = app.IsAudioQueueEmpty();
-            
-            // 如果设备处于空闲状态且音频队列为空，说明提示音已播放完成
-            if (state == kDeviceStateIdle && queue_empty) {
-                // 减少确认等待时间
-                if (wait_count >= 1) {
+        // 先检查当前状态
+        DeviceState initial_state = app.GetDeviceState();
+        bool initial_queue_empty = app.IsAudioQueueEmpty();
+        ESP_LOGI(TAG, "开始等待音频完成 - 初始状态: %d, 队列空: %s", (int)initial_state, initial_queue_empty ? "是" : "否");
+        
+        // 如果初始状态就是空闲且队列为空，直接跳过等待
+        if (initial_state == kDeviceStateIdle && initial_queue_empty) {
+            ESP_LOGI(TAG, "设备初始状态已是空闲且队列为空，跳过等待直接开始检查");
+            audio_finished = true;
+        } else {
+            while (wait_count < max_wait_time && !audio_finished) {
+                DeviceState state = app.GetDeviceState();
+                bool queue_empty = app.IsAudioQueueEmpty();
+                
+                // 如果设备处于空闲状态且音频队列为空，说明提示音已播放完成
+                if (state == kDeviceStateIdle && queue_empty) {
                     audio_finished = true;
                     break;
                 }
+                
+                ESP_LOGI(TAG, "等待音频完成... (%d/%d秒) [状态:%d, 队列空:%s]", 
+                        wait_count + 1, max_wait_time, (int)state, queue_empty ? "是" : "否");
+                vTaskDelay(pdMS_TO_TICKS(500));  // 500ms检查间隔
+                wait_count++;
             }
-            
-            ESP_LOGI(TAG, "优化等待策略：检查开机提示音... (%d/%d秒) [状态:%d, 队列空:%s]", 
-                    wait_count + 1, max_wait_time, (int)state, queue_empty ? "是" : "否");
-            vTaskDelay(pdMS_TO_TICKS(500));  // 从1秒减少到500ms，提高响应速度
-            wait_count++;
         }
         
         if (audio_finished) {
-            ESP_LOGI(TAG, "开机提示音播放完成，立即开始检查图片资源");
+            ESP_LOGI(TAG, "音频播放完成，开始检查图片资源");
         } else {
-            ESP_LOGW(TAG, "等待超时，强制开始检查图片资源（优化：减少等待时间）");
+            ESP_LOGW(TAG, "音频等待超时，强制开始检查图片资源");
         }
         
         // 并发保护：在资源检查前取消并等待预载结束，避免读/删并发
+        ESP_LOGI(TAG, "取消并等待预加载完成...");
         image_manager.CancelPreload();
         image_manager.WaitForPreloadToFinish(1000);
+        ESP_LOGI(TAG, "预加载处理完成");
 
         // 一次性检查并更新所有资源（动画图片和logo）
+        ESP_LOGI(TAG, "开始调用CheckAndUpdateAllResources");
+        ESP_LOGI(TAG, "API_URL: %s", API_URL);
+        ESP_LOGI(TAG, "VERSION_URL: %s", VERSION_URL);
+        ESP_LOGI(TAG, "调用前可用内存: %" PRIu32 " 字节", esp_get_free_heap_size());
+        
         esp_err_t all_resources_result = image_manager.CheckAndUpdateAllResources(API_URL, VERSION_URL);
+        
+        ESP_LOGI(TAG, "CheckAndUpdateAllResources调用完成，结果: %s (%d)", 
+                esp_err_to_name(all_resources_result), all_resources_result);
+        ESP_LOGI(TAG, "调用后可用内存: %" PRIu32 " 字节", esp_get_free_heap_size());
         
         // 处理一次性资源检查结果
         bool has_updates = false;
@@ -2379,12 +2409,19 @@ private:
         auto& app = Application::GetInstance();
         app.SetImageResourceCallback([this]() {
             ESP_LOGI(TAG, "OTA检查完成，开始检查图片资源");
-            // 创建后台任务执行图片资源检查
-            xTaskCreate([](void* param) {
+            // 创建后台任务执行图片资源检查，减少堆栈大小并检查返回值
+            BaseType_t task_result = xTaskCreate([](void* param) {
                 CustomBoard* board = static_cast<CustomBoard*>(param);
                 board->CheckImageResources();
                 vTaskDelete(NULL);
-            }, "img_resource_check", 16384, this, 3, NULL);
+            }, "img_resource_check", 8192, this, 3, NULL);  // 从16384减少到8192
+            
+            if (task_result != pdPASS) {
+                ESP_LOGE(TAG, "图片资源检查任务创建失败，错误码: %d", task_result);
+                ESP_LOGI(TAG, "当前可用内存: %" PRIu32 " 字节", esp_get_free_heap_size());
+            } else {
+                ESP_LOGI(TAG, "图片资源检查任务创建成功");
+            }
         });
     }
 
