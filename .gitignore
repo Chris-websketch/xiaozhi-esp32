@@ -25,3 +25,5 @@ __pycache__/
 .config/
 .augment/
 .trae/
+.qoder/
+.spec-workflow/
