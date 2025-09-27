@@ -164,6 +164,11 @@ public:
 
     // 闹钟预处理标志位 - 避免重复处理即将触发的闹钟
     bool alarm_pre_processing_active_ = false;
+    
+    // 闹钟前奏音频相关标志位
+    bool alarm_prelude_playing_ = false;        // 是否正在播放闹钟前奏音频
+    time_t alarm_prelude_start_time_ = 0;       // 闹钟前奏音频开始播放的时间
+    std::string pending_alarm_name_;            // 待触发的闹钟名称
 #endif
 private:
     Application();

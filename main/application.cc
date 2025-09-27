@@ -53,6 +53,11 @@ Application::Application() {
 #if CONFIG_USE_ALARM
     // 初始化闹钟预处理标志
     alarm_pre_processing_active_ = false;
+    
+    // 初始化闹钟前奏音频相关标志
+    alarm_prelude_playing_ = false;
+    alarm_prelude_start_time_ = 0;
+    pending_alarm_name_.clear();
 #endif
 
     esp_timer_create_args_t clock_timer_args = {
@@ -278,6 +283,28 @@ void Application::PlaySound(const std::string_view& sound) {
     SetDecodeSampleRate(16000, 60);
     const char* data = sound.data();
     size_t size = sound.size();
+    
+    // 添加详细的调试信息
+    ESP_LOGI(TAG, "PlaySound: 开始播放音频 - 数据大小:%zu字节, 数据指针:%p", size, data);
+    
+    if (size == 0) {
+        ESP_LOGE(TAG, "PlaySound: 音频数据为空，无法播放");
+        return;
+    }
+    
+    if (data == nullptr) {
+        ESP_LOGE(TAG, "PlaySound: 音频数据指针为空，无法播放");
+        return;
+    }
+    
+    // 确保音频输出启用
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (codec && !codec->output_enabled()) {
+        ESP_LOGI(TAG, "PlaySound: 音频输出未启用，正在启用...");
+        codec->EnableOutput(true);
+    }
+    
+    int packet_count = 0;
     for (const char* p = data; p < data + size; ) {
         auto p3 = (BinaryProtocol3*)p;
         p += sizeof(BinaryProtocol3);
@@ -287,10 +314,13 @@ void Application::PlaySound(const std::string_view& sound) {
         opus.resize(payload_size);
         memcpy(opus.data(), p3->payload, payload_size);
         p += payload_size;
+        packet_count++;
 
         std::lock_guard<std::mutex> lock(mutex_);
         audio_decode_queue_.emplace_back(std::move(opus));
     }
+    
+    ESP_LOGI(TAG, "PlaySound: 音频处理完成 - 总共%d个数据包已添加到播放队列", packet_count);
 }
 
 void Application::ToggleChatState() {
@@ -993,48 +1023,103 @@ void Application::AudioLoop() {
         }
 #if CONFIG_USE_ALARM
         if(alarm_m_ != nullptr){
-            // 检查是否有闹钟即将在3秒内触发，如果设备在聆听或说话状态则提前转为待命状态
+            // 检查是否有闹钟即将在5秒内触发，根据设备状态进行相应的预处理
             if(!alarm_pre_processing_active_ &&
-               (device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking)){
+               (device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking || device_state_ == kDeviceStateIdle)){
                 time_t now = time(NULL);
                 Alarm* next_alarm = alarm_m_->GetProximateAlarm(now);
                 if(next_alarm != nullptr){
                     int seconds_to_alarm = (int)(next_alarm->time - now);
-                    if(seconds_to_alarm > 0 && seconds_to_alarm <= 3){
-                        const char* state_name = (device_state_ == kDeviceStateListening) ? "聆听" : "说话";
-                        ESP_LOGI(TAG, "闹钟 '%s' 将在 %d 秒内触发，从%s状态切换到待命状态",
+                    if(seconds_to_alarm > 0 && seconds_to_alarm <= 5){
+                        const char* state_name = (device_state_ == kDeviceStateListening) ? "聆听" : 
+                                                (device_state_ == kDeviceStateSpeaking) ? "说话" : "空闲";
+                        ESP_LOGI(TAG, "闹钟 '%s' 将在 %d 秒内触发，当前设备状态：%s",
                                  next_alarm->name.c_str(), seconds_to_alarm, state_name);
 
                         // 设置预处理标志，避免重复处理
                         alarm_pre_processing_active_ = true;
+                        
+                        // 如果还没有播放闹钟前奏音频，根据当前状态采用不同的预处理策略
+                        if (!alarm_prelude_playing_) {
+                            alarm_prelude_playing_ = true;
+                            alarm_prelude_start_time_ = time(NULL);
+                            pending_alarm_name_ = next_alarm->name;
 
-                        // 根据当前状态采用不同的预处理策略
-                        if(device_state_ == kDeviceStateSpeaking){
-                            ESP_LOGI(TAG, "开始闹钟预处理：中断TTS播放");
+                            // 根据当前状态采用不同的预处理策略
+                            if(device_state_ == kDeviceStateSpeaking){
+                                ESP_LOGI(TAG, "开始闹钟预处理：先中断TTS播放，再播放前奏音频");
 
-                            // 说话状态：立即中断TTS播放
-                            Schedule([this]() {
-                                AbortSpeaking(kAbortReasonNone);
-                                ESP_LOGI(TAG, "TTS已中断，等待闹钟触发");
-                            });
+                                // 说话状态：先中断TTS播放，然后播放前奏音频
+                                Schedule([this]() {
+                                    AbortSpeaking(kAbortReasonNone);
+                                    ESP_LOGI(TAG, "TTS已中断，播放闹钟前奏音频");
+                                    
+                                    // 确保音频输出已启用
+                                    auto codec = Board::GetInstance().GetAudioCodec();
+                                    if (codec && !codec->output_enabled()) {
+                                        ESP_LOGI(TAG, "音频输出已禁用，为播放闹钟前奏音频重新启用");
+                                        codec->EnableOutput(true);
+                                    }
+                                    
+                                    // 播放闹钟前奏音频（使用专用闹钟音频）
+                                    PlaySound(Lang::Sounds::P3_ALARMCLOCK3S);
+                                });
 
-                        } else {
-                            ESP_LOGI(TAG, "开始闹钟预处理：停止音频录制");
+                            } else if(device_state_ == kDeviceStateListening) {
+                                ESP_LOGI(TAG, "开始闹钟预处理：先停止音频录制，再播放前奏音频");
 
-                            // 聆听状态：丢弃待处理的音频数据，然后关闭音频通道，切换到待命状态
-                            Schedule([this]() {
-                                // 先丢弃所有待处理的音频数据
-                                DiscardPendingAudioForAlarm();
+                                // 聆听状态：先丢弃待处理的音频数据，关闭音频通道，切换到待命状态，再播放前奏音频
+                                Schedule([this]() {
+                                    // 先丢弃所有待处理的音频数据
+                                    DiscardPendingAudioForAlarm();
 
-                                // 然后关闭音频通道
-                                if(protocol_->IsAudioChannelOpened()){
-                                    protocol_->CloseAudioChannel();
-                                }
+                                    // 然后关闭音频通道
+                                    if(protocol_->IsAudioChannelOpened()){
+                                        protocol_->CloseAudioChannel();
+                                    }
 
-                                // 最后切换到待命状态
-                                SetDeviceState(kDeviceStateIdle);
-                                ESP_LOGI(TAG, "为即将触发的闹钟准备：音频数据已丢弃，设备已切换到待命状态");
-                            });
+                                    // 切换到待命状态
+                                    SetDeviceState(kDeviceStateIdle);
+                                    ESP_LOGI(TAG, "为即将触发的闹钟准备：音频数据已丢弃，设备已切换到待命状态，播放闹钟前奏音频");
+                                    
+                                    // 确保音频输出已启用
+                                    auto codec = Board::GetInstance().GetAudioCodec();
+                                    if (codec && !codec->output_enabled()) {
+                                        ESP_LOGI(TAG, "音频输出已禁用，为播放闹钟前奏音频重新启用");
+                                        codec->EnableOutput(true);
+                                    }
+                                    
+                                    // 播放闹钟前奏音频（使用专用闹钟音频）
+                                    PlaySound(Lang::Sounds::P3_ALARMCLOCK3S);
+                                });
+                                
+                            } else if(device_state_ == kDeviceStateIdle) {
+                                ESP_LOGI(TAG, "开始闹钟预处理：设备空闲，直接播放前奏音频");
+
+                                // 空闲状态：直接播放前奏音频
+                                Schedule([this]() {
+                                    ESP_LOGI(TAG, "设备空闲状态，播放闹钟前奏音频");
+                                    
+                                    // 确保音频输出已启用（处理浅睡眠状态下音频输出被禁用的情况）
+                                    auto codec = Board::GetInstance().GetAudioCodec();
+                                    if (codec && !codec->output_enabled()) {
+                                        ESP_LOGI(TAG, "音频输出已禁用，为播放闹钟前奏音频重新启用");
+                                        codec->EnableOutput(true);
+                                    }
+                                    
+                                    // 更新最后输出时间，防止音频输出被自动禁用
+                                    last_output_time_ = std::chrono::steady_clock::now();
+                                    
+                                    // 播放闹钟前奏音频（使用专用闹钟音频，如果不可用则使用备用音频）
+                                    if (Lang::Sounds::P3_ALARMCLOCK3S.size() > 0) {
+                                        ESP_LOGI(TAG, "播放专用闹钟前奏音频 P3_ALARMCLOCK3S (大小:%zu字节)", Lang::Sounds::P3_ALARMCLOCK3S.size());
+                                        PlaySound(Lang::Sounds::P3_ALARMCLOCK3S);
+                                    } else {
+                                        ESP_LOGW(TAG, "专用闹钟音频文件为空或不可用，使用备用音频 P3_EXCLAMATION");
+                                        PlaySound(Lang::Sounds::P3_EXCLAMATION);
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -1044,6 +1129,14 @@ void Application::AudioLoop() {
             if(alarm_m_->IsRing()){
                 // 重置预处理标志
                 alarm_pre_processing_active_ = false;
+                
+                // 重置闹钟前奏音频相关标志
+                if (alarm_prelude_playing_) {
+                    ESP_LOGI(TAG, "闹钟 '%s' 触发，闹钟前奏音频播放完成", pending_alarm_name_.c_str());
+                    alarm_prelude_playing_ = false;
+                    alarm_prelude_start_time_ = 0;
+                    pending_alarm_name_.clear();
+                }
 
                 if(device_state_ != kDeviceStateListening){
                     if (device_state_ == kDeviceStateActivating) {
@@ -1087,6 +1180,15 @@ void Application::OnAudioOutput() {
         // Disable the output if there is no audio data for a long time
         if (device_state_ == kDeviceStateIdle) {
             auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - last_output_time_).count();
+            
+#if CONFIG_USE_ALARM
+            // 如果正在播放闹钟前奏音频，不要禁用音频输出
+            if (alarm_prelude_playing_) {
+                ESP_LOGD(TAG, "正在播放闹钟前奏音频，保持音频输出启用");
+                return;
+            }
+#endif
+            
             if (duration > max_silence_seconds) {
                 codec->EnableOutput(false);
             }
@@ -1229,6 +1331,14 @@ void Application::SetDeviceState(DeviceState state) {
     // 除非是从聆听状态切换到待命状态（这可能是闹钟预处理导致的）
     if(!(previous_state == kDeviceStateListening && state == kDeviceStateIdle)){
         alarm_pre_processing_active_ = false;
+        
+        // 如果不是在闹钟预处理期间，并且状态切换到非激活状态，重置闹钟前奏标志
+        if (!alarm_pre_processing_active_ && state == kDeviceStateIdle && alarm_prelude_playing_) {
+            ESP_LOGI(TAG, "设备状态切换到空闲，重置闹钟前奏标志");
+            alarm_prelude_playing_ = false;
+            alarm_prelude_start_time_ = 0;
+            pending_alarm_name_.clear();
+        }
     }
 #endif
     
