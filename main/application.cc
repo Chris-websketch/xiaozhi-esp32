@@ -570,6 +570,22 @@ void Application::Start() {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
+                    
+                    // 尝试检测多个意图，支持同时调节
+                    auto intent_results = local_intent_detector_.DetectMultipleIntents(message.c_str());
+                    if (!intent_results.empty()) {
+                        ESP_LOGI(TAG, "本地检测到 %zu 个意图，跳过云端LLM处理", intent_results.size());
+                        
+                        // 依次执行所有检测到的意图
+                        for (const auto& result : intent_results) {
+                            ESP_LOGI(TAG, "执行意图: %s.%s (置信度: %.2f)", 
+                                     result.device_name.c_str(), result.action.c_str(), result.confidence);
+                            ExecuteLocalIntent(result);
+                        }
+                    } else {
+                        ESP_LOGD(TAG, "本地意图检测未匹配，继续云端LLM处理");
+                        // 本地检测失败，继续发送给云端LLM（保持原有逻辑）
+                    }
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -633,6 +649,18 @@ void Application::Start() {
         }
     });
 #endif
+
+    // 初始化本地意图检测器
+    local_intent_detector_.Initialize();
+    local_intent_detector_.OnIntentDetected([this](const intent::IntentResult& result) {
+        ESP_LOGI(TAG, "本地检测到意图: %s.%s (置信度: %.2f)", 
+                 result.device_name.c_str(), result.action.c_str(), result.confidence);
+        
+        // 在主线程中执行意图
+        Schedule([this, result]() {
+            ExecuteLocalIntent(result);
+        });
+    });
 
 #if CONFIG_USE_WAKE_WORD_DETECT
     wake_word_detect_.Initialize(codec);
@@ -1868,6 +1896,104 @@ Application::AudioActivityLevel Application::GetAudioActivityLevel() const {
     
     // 最低级别：完全空闲 - 允许正常图片播放
     return AUDIO_IDLE;
+}
+
+void Application::ExecuteLocalIntent(const intent::IntentResult& result) {
+    // 构建IOT命令JSON
+    cJSON* command = cJSON_CreateObject();
+    if (!command) {
+        ESP_LOGE(TAG, "Failed to create JSON command object");
+        return;
+    }
+    
+    // ThingManager期望的是 "name" 字段，不是 "device"
+    cJSON_AddStringToObject(command, "name", result.device_name.c_str());
+    cJSON_AddStringToObject(command, "method", result.action.c_str());
+    
+    cJSON* parameters = cJSON_CreateObject();
+    if (!parameters) {
+        ESP_LOGE(TAG, "Failed to create JSON parameters object");
+        cJSON_Delete(command);
+        return;
+    }
+    
+    // 添加参数
+    for (const auto& param : result.parameters) {
+        if (param.first == "volume") {
+            int volume_value = std::stoi(param.second);
+            cJSON_AddNumberToObject(parameters, param.first.c_str(), volume_value);
+            ESP_LOGI(TAG, "添加音量参数: %d", volume_value);
+        } else if (param.first == "brightness") {
+            int brightness_value = std::stoi(param.second);
+            cJSON_AddNumberToObject(parameters, param.first.c_str(), brightness_value);
+            ESP_LOGI(TAG, "添加亮度参数: %d", brightness_value);
+        } else if (param.first == "theme_name") {
+            cJSON_AddStringToObject(parameters, param.first.c_str(), param.second.c_str());
+            ESP_LOGI(TAG, "添加主题参数: %s", param.second.c_str());
+        } else if (param.first == "relative" && result.type == intent::IntentType::BRIGHTNESS_CONTROL) {
+            // 处理相对亮度调节
+            auto backlight = Board::GetInstance().GetBacklight();
+            if (backlight) {
+                int current_brightness = backlight->brightness();
+                int new_brightness = current_brightness;
+                
+                if (param.second == "increase_10") {
+                    new_brightness = std::min(100, current_brightness + 10);
+                    ESP_LOGI(TAG, "亮度大一点: %d -> %d (+10)", current_brightness, new_brightness);
+                } else if (param.second == "decrease_10") {
+                    new_brightness = std::max(0, current_brightness - 10);
+                    ESP_LOGI(TAG, "亮度小一点: %d -> %d (-10)", current_brightness, new_brightness);
+                } else if (param.second == "increase") {
+                    new_brightness = std::min(100, current_brightness + 20);
+                    ESP_LOGI(TAG, "亮度调亮: %d -> %d (+20)", current_brightness, new_brightness);
+                } else if (param.second == "decrease") {
+                    new_brightness = std::max(0, current_brightness - 20);
+                    ESP_LOGI(TAG, "亮度调暗: %d -> %d (-20)", current_brightness, new_brightness);
+                }
+                
+                cJSON_AddNumberToObject(parameters, "brightness", new_brightness);
+            }
+        } else if (param.first == "relative" && result.type == intent::IntentType::VOLUME_CONTROL) {
+            // 处理相对音量调节
+            auto codec = Board::GetInstance().GetAudioCodec();
+            if (codec) {
+                int current_volume = codec->output_volume();
+                int new_volume = current_volume;
+                
+                if (param.second == "increase_10") {
+                    new_volume = std::min(100, current_volume + 10);
+                    ESP_LOGI(TAG, "音量大一点: %d -> %d (+10)", current_volume, new_volume);
+                } else if (param.second == "decrease_10") {
+                    new_volume = std::max(0, current_volume - 10);
+                    ESP_LOGI(TAG, "音量小一点: %d -> %d (-10)", current_volume, new_volume);
+                } else if (param.second == "increase") {
+                    new_volume = std::min(100, current_volume + 15);
+                    ESP_LOGI(TAG, "音量调大: %d -> %d (+15)", current_volume, new_volume);
+                } else if (param.second == "decrease") {
+                    new_volume = std::max(0, current_volume - 15);
+                    ESP_LOGI(TAG, "音量调小: %d -> %d (-15)", current_volume, new_volume);
+                }
+                
+                cJSON_AddNumberToObject(parameters, "volume", new_volume);
+            }
+        } else {
+            cJSON_AddStringToObject(parameters, param.first.c_str(), param.second.c_str());
+        }
+    }
+    cJSON_AddItemToObject(command, "parameters", parameters);
+    
+    // 执行IOT命令
+    ESP_LOGI(TAG, "执行本地检测的IOT命令: %s.%s", result.device_name.c_str(), result.action.c_str());
+    
+    auto& thing_manager = iot::ThingManager::GetInstance();
+    std::string error;
+    if (!thing_manager.InvokeSync(command, &error)) {
+        ESP_LOGE(TAG, "IOT命令执行失败: %s", error.c_str());
+    } else {
+        ESP_LOGI(TAG, "IOT命令执行成功");
+    }
+    
+    cJSON_Delete(command);
 }
 
 void Application::SendAlarmMessage() {

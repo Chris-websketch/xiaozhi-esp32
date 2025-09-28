@@ -41,6 +41,7 @@ struct DeviceConfig {
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "audio_processor.h"
 #endif
+#include "audio_processing/local_intent_detector.h"
 
 #define SCHEDULE_EVENT (1 << 0)
 #define AUDIO_INPUT_READY_EVENT (1 << 1)
@@ -112,6 +113,9 @@ public:
     // 发送闹钟消息的辅助函数
     void SendAlarmMessage();
     
+    // 执行本地检测的意图
+    void ExecuteLocalIntent(const intent::IntentResult& result);
+    
     /**
      * @brief 停止MQTT通知服务，用于省电模式
      */
@@ -180,6 +184,7 @@ private:
 #if CONFIG_USE_AUDIO_PROCESSOR
     AudioProcessor audio_processor_;
 #endif
+    intent::LocalIntentDetector local_intent_detector_;
     Ota ota_;
     std::mutex mutex_;
     std::list<std::function<void()>> main_tasks_;

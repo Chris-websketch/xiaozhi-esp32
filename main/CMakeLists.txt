@@ -194,6 +194,8 @@ endif()
 if(CONFIG_USE_WAKE_WORD_DETECT)
     list(APPEND SOURCES "audio_processing/wake_word_detect.cc")
 endif()
+# 添加本地意图检测模块
+list(APPEND SOURCES "audio_processing/local_intent_detector.cc")
 if(CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING)
     list(APPEND SOURCES "boards/common/afsk_demod.cc")
 endif()
