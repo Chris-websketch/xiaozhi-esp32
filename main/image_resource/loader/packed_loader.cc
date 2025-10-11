@@ -1,5 +1,6 @@
 #include "packed_loader.h"
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <esp_spiffs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -9,20 +10,50 @@
 #include <errno.h>
 #include "config/resource_config.h"
 #include "storage/spiffs_manager.h"
+#include <stdio.h>
 
 #define TAG "PackedLoader"
 
 namespace ImageResource {
 
-PackedLoader::PackedLoader(const ResourceConfig* config) 
-    : config_(config) {
+PackedLoader::PackedLoader(const ResourceConfig* config, SpiffsManager* spiffs_mgr) 
+    : config_(config), spiffs_mgr_(spiffs_mgr) {
+}
+
+void PackedLoader::TriggerLightGC() {
+    // 轻量级GC：创建并删除一个小文件，触发SPIFFS回收
+    const char* gc_file = "/resources/.gc_light.tmp";
+    FILE* f = fopen(gc_file, "w");
+    if (f) {
+        fprintf(f, "gc_trigger\n");
+        fflush(f);
+        fsync(fileno(f));
+        fclose(f);
+        unlink(gc_file);
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // 等待GC完成
 }
 
 bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
                               const char* packed_file,
                               size_t frame_size,
                               ProgressCallback callback) {
+    uint32_t start_time = esp_timer_get_time() / 1000;
     ESP_LOGI(TAG, "开始构建打包文件: %s", packed_file);
+    
+    // 执行完全的SPIFFS空间优化和垃圾回收
+    ESP_LOGI(TAG, "执行打包前SPIFFS完全垃圾回收...");
+    if (spiffs_mgr_ && callback) {
+        callback(0, 100, "正在清理磁盘碎片...");
+    }
+    if (spiffs_mgr_) {
+        spiffs_mgr_->OptimizeSpace("resources");
+    }
+    ESP_LOGI(TAG, "垃圾回收完成，开始打包");
+    
+    if (callback) {
+        callback(0, 100, "正在检查资源完整性...");
+    }
     
     // 检查源文件
     for (const auto& file : source_files) {
@@ -41,6 +72,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     // 删除旧文件
     unlink(packed_file);
     
+    // 使用4KB分块，配合GC策略保证稳定性
     const size_t chunk = 4 * 1024;  // 4KB分块
     const size_t total_bytes = frame_size * source_files.size();
     size_t processed_bytes = 0;
@@ -52,7 +84,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     
     uint8_t* buf = (uint8_t*)malloc(chunk);
     if (!buf) {
-        ESP_LOGE(TAG, "分配缓冲区失败");
+        ESP_LOGE(TAG, "分配缓冲区失败: %zu字节", chunk);
         return false;
     }
     
@@ -75,11 +107,19 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
         }
         setvbuf(in, NULL, _IOFBF, 32768);
         
+        // 分块读写整帧，平衡性能和SPIFFS空间
         size_t remaining = frame_size;
         while (remaining > 0) {
             size_t to_read = remaining > chunk ? chunk : remaining;
             size_t r = fread(buf, 1, to_read, in);
-            if (r == 0 && remaining > 0) break;
+            if (r == 0 && remaining > 0) {
+                ESP_LOGE(TAG, "读取源文件失败: %s", source_files[i].c_str());
+                fclose(in);
+                free(buf);
+                fclose(out);
+                unlink(packed_file);
+                return false;
+            }
             
             // 写入重试机制
             size_t w = 0;
@@ -112,10 +152,10 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
             }
             
             remaining -= r;
+            processed_bytes += w;
             
             // 更新进度
             if (callback) {
-                processed_bytes += w;
                 int percent = (int)((processed_bytes * 100) / total_bytes);
                 if (percent > 100) percent = 100;
                 if (percent != last_percent) {
@@ -127,13 +167,22 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
         
         fclose(in);
         ESP_LOGI(TAG, "第%zu帧写入完成", i + 1);
+        
+        // 每帧写入后执行轻量级GC，释放碎片空间
+        TriggerLightGC();
     }
     
     free(buf);
     fflush(out);
     fclose(out);
     
+    uint32_t end_time = esp_timer_get_time() / 1000;
+    uint32_t duration_ms = end_time - start_time;
+    float speed_mbps = (total_bytes / 1024.0f / 1024.0f) / (duration_ms / 1000.0f);
+    
     ESP_LOGI(TAG, "已构建打包文件: %s", packed_file);
+    ESP_LOGI(TAG, "打包性能: %lu字节, 耗时%lums, 速度%.2f MB/s", 
+             (unsigned long)total_bytes, (unsigned long)duration_ms, speed_mbps);
     
     if (callback) {
         callback(100, 100, "检查完成");

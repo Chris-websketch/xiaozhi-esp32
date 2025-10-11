@@ -51,7 +51,7 @@ ImageResourceManager::ImageResourceManager()
     downloader_ = new Downloader(config_);
     version_checker_ = new VersionChecker();
     image_loader_ = new ImageLoader();
-    packed_loader_ = new PackedLoader(config_);
+    packed_loader_ = new PackedLoader(config_, spiffs_mgr_);  // 传递SpiffsManager用于GC
     preload_mgr_ = new PreloadManager(config_);
     download_mode_ = new DownloadMode();
     cleanup_helper_ = new CleanupHelper();
@@ -344,6 +344,11 @@ esp_err_t ImageResourceManager::DownloadImages() {
     
     ESP_LOGI(TAG, "开始下载动画图片...");
     
+    // 显示下载准备UI
+    if (progress_callback_) {
+        progress_callback_(0, 100, "正在准备下载...");
+    }
+    
     download_mode_->Enter();
     
     // 删除旧文件
@@ -382,6 +387,11 @@ esp_err_t ImageResourceManager::DownloadLogo() {
     }
     
     ESP_LOGI(TAG, "开始下载logo...");
+    
+    // 显示下载准备UI
+    if (progress_callback_) {
+        progress_callback_(0, 100, "正在准备下载Logo...");
+    }
     
     download_mode_->Enter();
     

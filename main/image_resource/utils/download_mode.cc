@@ -26,13 +26,6 @@ void DownloadMode::Enter() {
     auto& board = Board::GetInstance();
     auto& app = Application::GetInstance();
     
-    // 立即显示下载UI，告知用户正在准备
-    auto display = board.GetDisplay();
-    if (display) {
-        display->SetDownloadProgress(0, "正在准备下载...");
-        ESP_LOGI(TAG, "已显示下载准备UI");
-    }
-    
     // 检查设备状态
     DeviceState current_state = app.GetDeviceState();
     if (current_state == kDeviceStateSpeaking || current_state == kDeviceStateListening) {
@@ -59,12 +52,7 @@ void DownloadMode::Enter() {
     vTaskPrioritySet(NULL, configMAX_PRIORITIES - 2);
     ESP_LOGI(TAG, "已提高下载任务优先级");
     
-    // 5. 更新UI显示为就绪状态
-    if (display) {
-        display->SetDownloadProgress(0, "准备就绪，即将开始下载");
-    }
-    
-    // 6. 等待系统稳定
+    // 5. 等待系统稳定
     vTaskDelay(pdMS_TO_TICKS(300));
     
     is_active_ = true;

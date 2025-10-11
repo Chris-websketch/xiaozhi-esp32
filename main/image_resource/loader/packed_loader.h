@@ -9,6 +9,7 @@
 // 前向声明
 namespace ImageResource {
     struct ResourceConfig;
+    class SpiffsManager;
 }
 
 namespace ImageResource {
@@ -21,7 +22,7 @@ class PackedLoader {
 public:
     using ProgressCallback = std::function<void(int current, int total, const char* message)>;
 
-    explicit PackedLoader(const ResourceConfig* config);
+    explicit PackedLoader(const ResourceConfig* config, SpiffsManager* spiffs_mgr);
     ~PackedLoader() = default;
 
     // 禁用拷贝
@@ -56,6 +57,13 @@ public:
 
 private:
     const ResourceConfig* config_;
+    SpiffsManager* spiffs_mgr_;
+    
+    /**
+     * 执行轻量级垃圾回收
+     * 在每帧写入后调用，释放SPIFFS碎片
+     */
+    void TriggerLightGC();
 };
 
 } // namespace ImageResource
