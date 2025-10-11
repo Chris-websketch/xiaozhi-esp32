@@ -1,6 +1,7 @@
 #include "packed_loader.h"
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sys/stat.h>
@@ -63,8 +64,8 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     // 删除旧文件
     unlink(packed_file);
     
-    // 使用4KB分块，配合GC策略保证稳定性
-    const size_t chunk = 4 * 1024;  // 4KB分块
+    // 一次性写入整帧以最大化LittleFS写入效率
+    const size_t chunk = frame_size;  // 整帧写入（约115KB）
     const size_t total_bytes = frame_size * source_files.size();
     size_t processed_bytes = 0;
     int last_percent = -1;
@@ -73,10 +74,14 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
         callback(0, 100, "正在检查资源完整性...");
     }
     
-    uint8_t* buf = (uint8_t*)malloc(chunk);
+    uint8_t* buf = (uint8_t*)heap_caps_malloc(chunk, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!buf) {
-        ESP_LOGE(TAG, "分配缓冲区失败: %zu字节", chunk);
-        return false;
+        ESP_LOGW(TAG, "PSRAM分配失败，尝试内部RAM");
+        buf = (uint8_t*)malloc(chunk);
+        if (!buf) {
+            ESP_LOGE(TAG, "分配缓冲区失败: %zu字节", chunk);
+            return false;
+        }
     }
     
     FILE* out = fopen(packed_file, "wb");
@@ -85,7 +90,8 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
         free(buf);
         return false;
     }
-    setvbuf(out, NULL, _IOFBF, 32768);
+    // 增大缓冲区到128KB以减少LittleFS写入次数
+    setvbuf(out, NULL, _IOFBF, 128 * 1024);
     
     for (size_t i = 0; i < source_files.size(); i++) {
         FILE* in = fopen(source_files[i].c_str(), "rb");
@@ -96,7 +102,8 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
             unlink(packed_file);
             return false;
         }
-        setvbuf(in, NULL, _IOFBF, 32768);
+        // 增大读取缓冲区到64KB
+        setvbuf(in, NULL, _IOFBF, 64 * 1024);
         
         // 分块读写整帧，平衡性能和SPIFFS空间
         size_t remaining = frame_size;
@@ -159,8 +166,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
         fclose(in);
         ESP_LOGI(TAG, "第%zu帧写入完成", i + 1);
         
-        // 每帧写入后执行轻量级GC，释放碎片空间
-        TriggerLightGC();
+        // 完全移除延迟，最大化写入速度
     }
     
     free(buf);

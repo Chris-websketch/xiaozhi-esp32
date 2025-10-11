@@ -29,9 +29,6 @@ using ImageResource::ImageBufferPool;
 using ImageResource::ConfigManager;
 using ImageResource::ResourceConfig;
 
-// 开机成功提示音只播放一次
-static bool g_startup_success_sound_played = false;
-
 static const char* const STATE_STRINGS[] = {
     "unknown",
     "starting",
@@ -193,12 +190,7 @@ void Application::CheckNewVersion() {
         SetDeviceState(kDeviceStateIdle);
         display->SetChatMessage("system", "");
         ResetDecoder();
-        // 进入待机后播放开机成功提示音（仅一次）
-        if (!g_startup_success_sound_played) {
-            PlaySound(Lang::Sounds::P3_SUCCESS);
-            g_startup_success_sound_played = true;
-        }
-        // 联网成功提示音已移至预热完成后播放
+        // 开机成功提示音已移至资源检查完成后播放（仅在无需更新时播放）
         
         // OTA检查完成，标记为完成状态
         ESP_LOGI(TAG, "OTA check completed, triggering image resource check");

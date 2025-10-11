@@ -2276,46 +2276,7 @@ private:
             return;
         }
         
-        ESP_LOGI(TAG, "WiFi已连接，优化等待策略检查开机提示音...");
-        
-        // 优化：减少等待开机提示音的时间，提高检查频率
-        auto& app = Application::GetInstance();
-        int wait_count = 0;
-        const int max_wait_time = 3; // 进一步从5秒减少到3秒
-        bool audio_finished = false;
-        
-        // 先检查当前状态
-        DeviceState initial_state = app.GetDeviceState();
-        bool initial_queue_empty = app.IsAudioQueueEmpty();
-        ESP_LOGI(TAG, "开始等待音频完成 - 初始状态: %d, 队列空: %s", (int)initial_state, initial_queue_empty ? "是" : "否");
-        
-        // 如果初始状态就是空闲且队列为空，直接跳过等待
-        if (initial_state == kDeviceStateIdle && initial_queue_empty) {
-            ESP_LOGI(TAG, "设备初始状态已是空闲且队列为空，跳过等待直接开始检查");
-            audio_finished = true;
-        } else {
-            while (wait_count < max_wait_time && !audio_finished) {
-                DeviceState state = app.GetDeviceState();
-                bool queue_empty = app.IsAudioQueueEmpty();
-                
-                // 如果设备处于空闲状态且音频队列为空，说明提示音已播放完成
-                if (state == kDeviceStateIdle && queue_empty) {
-                    audio_finished = true;
-                    break;
-                }
-                
-                ESP_LOGI(TAG, "等待音频完成... (%d/%d秒) [状态:%d, 队列空:%s]", 
-                        wait_count + 1, max_wait_time, (int)state, queue_empty ? "是" : "否");
-                vTaskDelay(pdMS_TO_TICKS(500));  // 500ms检查间隔
-                wait_count++;
-            }
-        }
-        
-        if (audio_finished) {
-            ESP_LOGI(TAG, "音频播放完成，开始检查图片资源");
-        } else {
-            ESP_LOGW(TAG, "音频等待超时，强制开始检查图片资源");
-        }
+        ESP_LOGI(TAG, "WiFi已连接，立即开始资源检查...");
         
         // 并发保护：在资源检查前取消并等待预载结束，避免读/删并发
         ESP_LOGI(TAG, "取消并等待预加载完成...");
@@ -2344,6 +2305,13 @@ private:
             has_updates = true;
         } else if (all_resources_result == ESP_ERR_NOT_FOUND) {
             ESP_LOGI(TAG, "所有图片资源已是最新版本，无需更新");
+            
+            // 资源无需更新，设备就绪，播放开机成功提示音
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateIdle) {
+                ESP_LOGI(TAG, "设备就绪，播放开机成功提示音");
+                app.PlaySound(Lang::Sounds::P3_SUCCESS);
+            }
         } else {
             ESP_LOGE(TAG, "图片资源检查/下载失败");
             has_errors = true;

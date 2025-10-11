@@ -116,7 +116,7 @@ void Protocol::SendIotStates(const std::string& states) {
 }
 
 bool Protocol::IsTimeout() const {
-    const int kTimeoutSeconds = 120;
+    const int kTimeoutSeconds = 60;
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - last_incoming_time_);
     bool timeout = duration.count() > kTimeoutSeconds;
