@@ -237,6 +237,7 @@ endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
+                    REQUIRES littlefs esp_app_format app_update spi_flash
                     WHOLE_ARCHIVE
                     )
 

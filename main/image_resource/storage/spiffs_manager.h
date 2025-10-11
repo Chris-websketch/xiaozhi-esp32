@@ -6,8 +6,9 @@
 namespace ImageResource {
 
 /**
- * SPIFFS分区管理器
+ * 文件系统分区管理器（LittleFS）
  * 负责分区的挂载、卸载、格式化和空间管理
+ * 注意：已从SPIFFS迁移到LittleFS以获得更好的性能和碎片管理
  */
 class SpiffsManager {
 public:
@@ -19,7 +20,7 @@ public:
     SpiffsManager& operator=(const SpiffsManager&) = delete;
 
     /**
-     * 挂载SPIFFS分区
+     * 挂载LittleFS分区
      * @param partition_label 分区标签
      * @param mount_point 挂载点路径
      * @param max_files 最大文件数
@@ -32,14 +33,14 @@ public:
                    bool format_if_failed = true);
 
     /**
-     * 卸载SPIFFS分区
+     * 卸载LittleFS分区
      * @param mount_point 挂载点路径
      * @return ESP_OK成功，其他失败
      */
     esp_err_t Unmount(const char* mount_point);
 
     /**
-     * 格式化SPIFFS分区
+     * 格式化LittleFS分区
      * @param partition_label 分区标签
      * @return ESP_OK成功，其他失败
      */
@@ -53,7 +54,7 @@ public:
     size_t GetFreeSpace(const char* partition_label);
 
     /**
-     * 优化SPIFFS空间碎片
+     * 优化文件系统空间（LittleFS自动管理，保留接口兼容性）
      * @param partition_label 分区标签
      * @return true成功，false失败
      */

@@ -9,7 +9,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_log.h>
-#include <esp_spiffs.h>
+#include <esp_littlefs.h>
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
@@ -32,14 +32,14 @@ private:
     Button volume_down_button_;
 
     void MountStorage() {
-        // Mount the storage partition
-        esp_vfs_spiffs_conf_t conf = {
+        // Mount the storage partition using LittleFS
+        esp_vfs_littlefs_conf_t conf = {
             .base_path = "/storage",
             .partition_label = "storage",
             .max_files = 5,
             .format_if_mount_failed = false,
         };
-        esp_vfs_spiffs_register(&conf);
+        esp_vfs_littlefs_register(&conf);
     }
 
     void Enable4GModule() {

@@ -60,8 +60,8 @@ private:
     SpiffsManager* spiffs_mgr_;
     
     /**
-     * 执行轻量级垃圾回收
-     * 在每帧写入后调用，释放SPIFFS碎片
+     * 执行轻量级垃圾回收（LittleFS自动管理，保留接口兼容性）
+     * 在每帧写入后调用
      */
     void TriggerLightGC();
 };

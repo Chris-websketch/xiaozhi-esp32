@@ -1,7 +1,6 @@
 #include "packed_loader.h"
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <esp_spiffs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sys/stat.h>
@@ -21,17 +20,9 @@ PackedLoader::PackedLoader(const ResourceConfig* config, SpiffsManager* spiffs_m
 }
 
 void PackedLoader::TriggerLightGC() {
-    // 轻量级GC：创建并删除一个小文件，触发SPIFFS回收
-    const char* gc_file = "/resources/.gc_light.tmp";
-    FILE* f = fopen(gc_file, "w");
-    if (f) {
-        fprintf(f, "gc_trigger\n");
-        fflush(f);
-        fsync(fileno(f));
-        fclose(f);
-        unlink(gc_file);
-    }
-    vTaskDelay(pdMS_TO_TICKS(10)); // 等待GC完成
+    // LittleFS具有自动碎片管理，无需手动GC
+    // 保留短暂延迟以维持兼容性
+    vTaskDelay(pdMS_TO_TICKS(5));
 }
 
 bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
@@ -41,15 +32,15 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     uint32_t start_time = esp_timer_get_time() / 1000;
     ESP_LOGI(TAG, "开始构建打包文件: %s", packed_file);
     
-    // 执行完全的SPIFFS空间优化和垃圾回收
-    ESP_LOGI(TAG, "执行打包前SPIFFS完全垃圾回收...");
+    // 执行打包前的文件系统优化（LittleFS自动管理）
+    ESP_LOGI(TAG, "执行打包前文件系统优化...");
     if (spiffs_mgr_ && callback) {
         callback(0, 100, "正在清理磁盘碎片...");
     }
     if (spiffs_mgr_) {
         spiffs_mgr_->OptimizeSpace("resources");
     }
-    ESP_LOGI(TAG, "垃圾回收完成，开始打包");
+    ESP_LOGI(TAG, "优化完成，开始打包");
     
     if (callback) {
         callback(0, 100, "正在检查资源完整性...");

@@ -1,6 +1,6 @@
 #include "spiffs_manager.h"
 #include <esp_log.h>
-#include <esp_spiffs.h>
+#include <esp_littlefs.h>
 #include <esp_partition.h>
 #include <sys/stat.h>
 #include <string.h>
@@ -27,7 +27,7 @@ esp_err_t SpiffsManager::Mount(const char* partition_label,
     // 检查分区是否存在
     const esp_partition_t* target_partition = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, 
-        ESP_PARTITION_SUBTYPE_DATA_SPIFFS, 
+        ESP_PARTITION_SUBTYPE_ANY, 
         partition_label);
     
     if (target_partition == NULL) {
@@ -39,17 +39,20 @@ esp_err_t SpiffsManager::Mount(const char* partition_label,
              static_cast<unsigned long>(target_partition->size), 
              static_cast<double>(target_partition->size) / (1024.0 * 1024.0));
     
-    esp_vfs_spiffs_conf_t conf = {
+    esp_vfs_littlefs_conf_t conf = {
         .base_path = mount_point,
         .partition_label = partition_label,
-        .max_files = max_files,
-        .format_if_mount_failed = format_if_failed
+        .format_if_mount_failed = format_if_failed,
+        .dont_mount = false
     };
     
-    ESP_LOGI(TAG, "开始挂载SPIFFS分区，如需格式化可能需要30-60秒...");
+    // LittleFS不需要max_files参数
+    (void)max_files;
+    
+    ESP_LOGI(TAG, "开始挂载LittleFS分区，如需格式化可能需要30-60秒...");
     
     uint32_t start_time = esp_timer_get_time() / 1000;
-    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    esp_err_t ret = esp_vfs_littlefs_register(&conf);
     uint32_t end_time = esp_timer_get_time() / 1000;
     
     if (ret != ESP_OK) {
@@ -60,7 +63,7 @@ esp_err_t SpiffsManager::Mount(const char* partition_label,
     uint32_t duration = end_time - start_time;
     
     size_t total = 0, used = 0;
-    ret = esp_spiffs_info(partition_label, &total, &used);
+    ret = esp_littlefs_info(partition_label, &total, &used);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "获取SPIFFS信息失败");
         return ret;
@@ -83,7 +86,7 @@ esp_err_t SpiffsManager::Unmount(const char* mount_point) {
     ESP_LOGI(TAG, "卸载分区: %s", mount_point);
     
     for (int retry = 0; retry < 3; retry++) {
-        esp_err_t ret = esp_vfs_spiffs_unregister(mount_point);
+        esp_err_t ret = esp_vfs_littlefs_unregister(mount_point);
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "分区卸载成功");
             mounted_ = false;
@@ -104,7 +107,7 @@ esp_err_t SpiffsManager::Format(const char* partition_label) {
     vTaskDelay(pdMS_TO_TICKS(1000));
     
     for (int retry = 0; retry < 3; retry++) {
-        esp_err_t ret = esp_spiffs_format(partition_label);
+        esp_err_t ret = esp_littlefs_format(partition_label);
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "分区格式化成功");
             return ESP_OK;
@@ -119,7 +122,7 @@ esp_err_t SpiffsManager::Format(const char* partition_label) {
 
 size_t SpiffsManager::GetFreeSpace(const char* partition_label) {
     size_t total = 0, used = 0;
-    esp_err_t ret = esp_spiffs_info(partition_label, &total, &used);
+    esp_err_t ret = esp_littlefs_info(partition_label, &total, &used);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "获取空间信息失败: %s", esp_err_to_name(ret));
         return 0;
@@ -128,10 +131,10 @@ size_t SpiffsManager::GetFreeSpace(const char* partition_label) {
 }
 
 bool SpiffsManager::OptimizeSpace(const char* partition_label) {
-    ESP_LOGI(TAG, "开始优化SPIFFS空间碎片...");
+    ESP_LOGI(TAG, "开始优化LittleFS空间...");
     
     size_t total_before = 0, used_before = 0;
-    esp_err_t ret = esp_spiffs_info(partition_label, &total_before, &used_before);
+    esp_err_t ret = esp_littlefs_info(partition_label, &total_before, &used_before);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "无法获取优化前的空间信息");
         return false;
@@ -143,44 +146,13 @@ bool SpiffsManager::OptimizeSpace(const char* partition_label) {
              static_cast<unsigned long>(used_before), 
              static_cast<unsigned long>(free_before));
     
-    // 触发垃圾回收
-    const char* gc_trigger = "/.gc_trigger.tmp";
-    char full_path[128];
-    snprintf(full_path, sizeof(full_path), "%s%s", "/resources", gc_trigger);
-    
-    FILE* gc_file = fopen(full_path, "w");
-    if (gc_file) {
-        for (int i = 0; i < 100; i++) {
-            fprintf(gc_file, "trigger_gc_%d\n", i);
-        }
-        fflush(gc_file);
-        fsync(fileno(gc_file));
-        fclose(gc_file);
-        unlink(full_path);
-        ESP_LOGI(TAG, "垃圾回收触发完成");
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(200));
-    
-    // 多轮触发
-    for (int round = 0; round < 3; round++) {
-        snprintf(full_path, sizeof(full_path), "/resources/.gc_round_%d.tmp", round);
-        FILE* round_file = fopen(full_path, "w");
-        if (round_file) {
-            for (int i = 0; i < 20; i++) {
-                fprintf(round_file, "gc_round_%d_%d\n", round, i);
-            }
-            fflush(round_file);
-            fclose(round_file);
-            unlink(full_path);
-        }
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(300));
+    // LittleFS具有自动磨损均衡和碎片管理，无需手动GC
+    // 保留短暂延迟以确保文件系统操作完成
+    ESP_LOGI(TAG, "LittleFS自动管理空间，无需手动垃圾回收");
+    vTaskDelay(pdMS_TO_TICKS(100));
     
     size_t total_after = 0, used_after = 0;
-    ret = esp_spiffs_info(partition_label, &total_after, &used_after);
+    ret = esp_littlefs_info(partition_label, &total_after, &used_after);
     if (ret == ESP_OK) {
         size_t free_after = (total_after > used_after) ? (total_after - used_after) : 0;
         size_t space_gained = (free_after > free_before) ? (free_after - free_before) : 0;
