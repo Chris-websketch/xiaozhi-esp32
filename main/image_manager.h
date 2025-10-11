@@ -4,163 +4,135 @@
 #include <vector>
 #include <stdint.h>
 #include <functional>
-#include "esp_err.h"
 #include <atomic>
+#include "esp_err.h"
 
 // 前向声明
 namespace ImageResource {
     struct ResourceConfig;
+    class SpiffsManager;
+    class CacheManager;
+    class Downloader;
+    class VersionChecker;
+    class ImageLoader;
+    class PackedLoader;
+    class PreloadManager;
+    class DownloadMode;
+    class CleanupHelper;
 }
 
-// 下载策略配置
-#define ENABLE_SERIAL_DOWNLOAD 1  // 启用串行下载，避免并发网络请求
-#define DOWNLOAD_RETRY_BASE_DELAY_MS 5000  // 基础重试延时5秒
+// 二进制图片格式常量（保持向后兼容）
+#define BINARY_IMAGE_MAGIC UINT32_C(0x42494D47)
+#define BINARY_IMAGE_VERSION UINT32_C(1)
 
-// 二进制图片格式相关常量
-#define BINARY_IMAGE_MAGIC UINT32_C(0x42494D47)  // "BIMG" 魔数
-#define BINARY_IMAGE_VERSION UINT32_C(1)         // 版本号
-
-// 二进制图片文件头结构
 struct BinaryImageHeader {
-    uint32_t magic;        // 魔数 0x42494D47 ("BIMG")
-    uint32_t version;      // 版本号 1
-    uint32_t width;        // 图片宽度
-    uint32_t height;       // 图片高度
-    uint32_t data_size;    // 数据大小（字节）
-    uint32_t reserved[3];  // 保留字段，便于未来扩展
+    uint32_t magic;
+    uint32_t version;
+    uint32_t width;
+    uint32_t height;
+    uint32_t data_size;
+    uint32_t reserved[3];
 };
 
 /**
- * 图片资源管理器类
- * 负责从网络下载和管理图片资源
+ * 图片资源管理器（重构版）
+ * 协调各模块完成图片资源的下载、加载和管理
  */
 class ImageResourceManager {
 public:
-    // 获取单例实例
+    using ProgressCallback = std::function<void(int current, int total, const char* message)>;
+
+    // 获取单例
     static ImageResourceManager& GetInstance() {
         static ImageResourceManager instance;
         return instance;
     }
     
-    // 初始化资源管理器
+    // 初始化
     esp_err_t Initialize();
     
-    // 检查并更新图片资源
+    // 资源检查和更新
     esp_err_t CheckAndUpdateResources(const char* api_url, const char* version_url);
-    
-    // 检查并更新logo图片（独立版本管理）
     esp_err_t CheckAndUpdateLogo(const char* api_url, const char* logo_version_url);
-    
-    // 一次性检查并更新所有资源（动画图片+logo）
     esp_err_t CheckAndUpdateAllResources(const char* api_url, const char* version_url);
     
-    // 获取图片数组（用于动画）
+    // 图片访问
     const std::vector<const uint8_t*>& GetImageArray() const;
-    
-    // 获取logo图片（用于静态显示）
     const uint8_t* GetLogoImage() const;
     
-    // 按需加载指定索引的图片（延迟加载策略）
+    // 按需加载
     bool LoadImageOnDemand(int image_index);
-    
-    // 检查指定索引的图片是否已加载
     bool IsImageLoaded(int image_index) const;
     
-    // 预加载所有剩余图片（在系统初始化完成后调用）
+    // 预加载
     esp_err_t PreloadRemainingImages();
-    
-    // 静默预载：不触发UI回调，支持时间预算（毫秒；0 表示不限时）
     esp_err_t PreloadRemainingImagesSilent(unsigned long time_budget_ms);
-
-    // 预载控制：取消、查询与等待结束（毫秒超时；0 表示不等待）
     void CancelPreload();
     bool IsPreloading() const;
     bool WaitForPreloadToFinish(unsigned long timeout_ms);
     
-    // 设置下载进度回调函数
-    using ProgressCallback = std::function<void(int current, int total, const char* message)>;
-    void SetDownloadProgressCallback(ProgressCallback callback) {
-        progress_callback_ = callback;
-    }
+    // 回调设置
+    void SetDownloadProgressCallback(ProgressCallback callback);
+    void SetPreloadProgressCallback(ProgressCallback callback);
     
-    // 设置预加载进度回调函数
-    void SetPreloadProgressCallback(ProgressCallback callback) {
-        preload_progress_callback_ = callback;
-    }
-    
-    // 调试功能：清理所有损坏的图片文件
+    // 调试功能
     bool ClearAllImageFiles();
 
 private:
     ImageResourceManager();
     ~ImageResourceManager();
     
-    // 禁用拷贝构造和赋值
+    // 禁用拷贝
     ImageResourceManager(const ImageResourceManager&) = delete;
     ImageResourceManager& operator=(const ImageResourceManager&) = delete;
     
     // 内部方法
-    esp_err_t MountResourcesPartition();
-    std::string ReadLocalDynamicUrls(); // 重命名：读取本地动态图片URL
-    std::string ReadLocalStaticUrl(); // 重命名：读取本地静态图片URL
     bool CheckImagesExist();
-    bool CheckLogoExists(); // 检查logo是否存在
-    void CreateDirectoryIfNotExists(const char* path);
-    esp_err_t CheckServerVersion(const char* version_url);
-    esp_err_t CheckServerLogoVersion(const char* logo_version_url); // 检查服务器logo版本
-    esp_err_t CheckAllServerResources(const char* version_url, bool& need_update_animations, bool& need_update_logo); // 一次性检查所有资源
-    esp_err_t DownloadImages(const char* api_url);
-    esp_err_t DownloadLogo(const char* api_url); // 下载logo
-    esp_err_t DownloadImagesWithUrls(const std::vector<std::string>& urls); // 使用URL列表下载动画图片
-    esp_err_t DownloadLogoWithUrl(const std::string& url); // 使用URL下载logo
-    esp_err_t DownloadFile(const char* url, const char* filepath, int file_index = 0, int total_files = 1);
-    bool SaveDynamicUrls(const std::vector<std::string>& urls); // 保存动态图片URL列表
-    bool SaveStaticUrl(const std::string& url); // 保存静态图片URL
+    bool CheckLogoExists();
+    esp_err_t DownloadImages();
+    esp_err_t DownloadLogo();
     void LoadImageData();
     bool LoadImageFile(int image_index);
-    bool LoadLogoFile(); // 加载logo文件
-    bool LoadPackedImages(); // 从打包文件一次性加载所有图片
-    bool BuildPackedImages(); // 构建打包文件以加速下次加载
-    void EnterDownloadMode(); // 进入下载模式，优化系统资源
-    void ExitDownloadMode();  // 退出下载模式，恢复正常状态
-    bool DeleteExistingAnimationFiles(); // 删除现有动画图片文件（带进度显示）
-    bool DeleteExistingLogoFile(); // 删除现有logo文件（带进度显示）
-    bool ConvertHFileToBinary(const char* h_filepath, const char* bin_filepath); // 转换.h文件为二进制格式
-    bool LoadBinaryImageFile(int image_index); // 从二进制文件加载图片数据
-    bool LoadRawImageFile(int image_index, size_t file_size); // 从原始RGB数据文件加载图片
+    bool LoadLogoFile();
+    bool BuildAndRestart();
     
-    // 空间管理和清理函数
-    bool CleanupTemporaryFiles(); // 清理临时文件和损坏文件
-    bool OptimizeSpiffsSpace(); // 优化SPIFFS空间碎片
-    size_t GetSpiffsFreeSpace(); // 获取SPIFFS可用空间
-    bool FormatResourcesPartition(); // 强制格式化重置resources分区
+    // 模块实例（使用指针以实现前向声明）
+    ImageResource::SpiffsManager* spiffs_mgr_;
+    ImageResource::CacheManager* cache_mgr_;
+    ImageResource::Downloader* downloader_;
+    ImageResource::VersionChecker* version_checker_;
+    ImageResource::ImageLoader* image_loader_;
+    ImageResource::PackedLoader* packed_loader_;
+    ImageResource::PreloadManager* preload_mgr_;
+    ImageResource::DownloadMode* download_mode_;
+    ImageResource::CleanupHelper* cleanup_helper_;
     
-    // 预载内部实现
-    esp_err_t PreloadRemainingImagesImpl(bool silent, unsigned long time_budget_ms);
-    
-    // 成员变量
-    bool mounted_;           // 分区是否已挂载
-    bool initialized_;       // 是否已初始化
-    bool has_valid_images_;  // 是否有有效图片
-    bool has_valid_logo_;    // 是否有有效logo
-    std::string cached_static_url_;  // 缓存的静态图片URL
-    std::vector<std::string> cached_dynamic_urls_; // 缓存的动态图片URL列表
-    std::string server_static_url_;  // 服务器返回的静态图片URL
-    std::vector<std::string> server_dynamic_urls_; // 服务器返回的动态图片URL列表
-    std::vector<const uint8_t*> image_array_; // 图片数据指针数组
-    std::vector<uint8_t*> image_data_pointers_;  // 管理内存的指针数组
-    uint8_t* logo_data_; // logo图片数据
-    
-    // 下载进度回调函数
-    ProgressCallback progress_callback_;
-    
-    // 预加载进度回调函数
-    ProgressCallback preload_progress_callback_;
-
-    // 预载状态与控制
-    std::atomic<bool> cancel_preload_{false};
-    std::atomic<bool> is_preloading_{false};
-    
-    // 配置管理
+    // 配置
     const ImageResource::ResourceConfig* config_;
+    
+    // 状态变量
+    bool initialized_;
+    bool has_valid_images_;
+    bool has_valid_logo_;
+    
+    // 下载任务追踪
+    bool pending_animations_download_;
+    bool pending_logo_download_;
+    bool animations_download_completed_;
+    bool logo_download_completed_;
+    
+    // URL缓存
+    std::string cached_static_url_;
+    std::vector<std::string> cached_dynamic_urls_;
+    std::string server_static_url_;
+    std::vector<std::string> server_dynamic_urls_;
+    
+    // 图片数据
+    std::vector<const uint8_t*> image_array_;
+    std::vector<uint8_t*> image_data_pointers_;
+    uint8_t* logo_data_;
+    
+    // 回调
+    ProgressCallback progress_callback_;
+    ProgressCallback preload_progress_callback_;
 };

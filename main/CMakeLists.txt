@@ -20,7 +20,16 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "main.cc"
             "ml307_tcp_transport.cc"
             "image_manager.cc"
-            "image_manager_refactored.cc"
+            "image_resource/storage/spiffs_manager.cc"
+            "image_resource/storage/cache_manager.cc"
+            "image_resource/network/downloader.cc"
+            "image_resource/network/version_checker.cc"
+            "image_resource/loader/image_loader.cc"
+            "image_resource/loader/format_converter.cc"
+            "image_resource/loader/packed_loader.cc"
+            "image_resource/preload/preload_manager.cc"
+            "image_resource/utils/download_mode.cc"
+            "image_resource/utils/cleanup_helper.cc"
             "notifications/mqtt_notifier.cc"
             "memory/memory_manager.cc"
             "error/error_handling.cc"
@@ -31,7 +40,7 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "ui/MusicIcon.c"
             )
 
-set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "memory" "error" "config" "downloader")
+set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "memory" "error" "config" "downloader" "image_resource" "image_resource/storage" "image_resource/network" "image_resource/loader" "image_resource/preload" "image_resource/utils")
 
 # 添加 IOT 相关文件
 file(GLOB IOT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/iot/things/*.cc)
