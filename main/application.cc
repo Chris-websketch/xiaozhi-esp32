@@ -1047,8 +1047,8 @@ void Application::AudioLoop() {
             if(!alarm_pre_processing_active_ &&
                (device_state_ == kDeviceStateListening || device_state_ == kDeviceStateSpeaking || device_state_ == kDeviceStateIdle)){
                 time_t now = time(NULL);
-                Alarm* next_alarm = alarm_m_->GetProximateAlarm(now);
-                if(next_alarm != nullptr){
+                auto next_alarm = alarm_m_->GetProximateAlarm(now);
+                if(next_alarm.has_value()){
                     int seconds_to_alarm = (int)(next_alarm->time - now);
                     if(seconds_to_alarm > 0 && seconds_to_alarm <= 5){
                         const char* state_name = (device_state_ == kDeviceStateListening) ? "聆听" : 

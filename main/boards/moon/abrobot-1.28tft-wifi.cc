@@ -1806,8 +1806,8 @@ private:
 #if CONFIG_USE_ALARM
         if (app.alarm_m_ != nullptr) {
             time_t now = time(NULL);
-            Alarm* next_alarm = app.alarm_m_->GetProximateAlarm(now);
-            if (next_alarm != nullptr) {
+            auto next_alarm = app.alarm_m_->GetProximateAlarm(now);
+            if (next_alarm.has_value()) {
                 int seconds_to_alarm = (int)(next_alarm->time - now);
                 if (seconds_to_alarm > 0 && seconds_to_alarm <= 60) {
                     ESP_LOGD(TAG, "闹钟 '%s' 将在 %d 秒内响起，不进入超级省电模式", 
@@ -2010,8 +2010,8 @@ private:
             
             // 检查是否有闹钟即将在1分钟内响起（仅在超级省电模式下检查）
             if (board->IsInSuperPowerSaveMode() && !board->is_alarm_pre_wake_active_) {
-                Alarm* next_alarm = app.alarm_m_->GetProximateAlarm(now);
-                if (next_alarm != nullptr) {
+                auto next_alarm = app.alarm_m_->GetProximateAlarm(now);
+                if (next_alarm.has_value()) {
                     time_t alarm_time = next_alarm->time;
                     // 计算闹钟剩余时间
                     int seconds_to_alarm = (int)(alarm_time - now);
@@ -2043,8 +2043,8 @@ private:
             // 如果设备已唤醒且不在超级省电模式，重置提前唤醒标志
             if (!board->IsInSuperPowerSaveMode() && board->is_alarm_pre_wake_active_) {
                 // 检查是否还有即将响起的闹钟
-                Alarm* next_alarm = app.alarm_m_->GetProximateAlarm(now);
-                if (next_alarm == nullptr) {
+                auto next_alarm = app.alarm_m_->GetProximateAlarm(now);
+                if (!next_alarm.has_value()) {
                     // 没有即将响起的闹钟，重置标志
                     board->is_alarm_pre_wake_active_ = false;
                 } else {
@@ -2137,8 +2137,8 @@ private:
 #if CONFIG_USE_ALARM
         if (app.alarm_m_ != nullptr) {
             time_t now = time(NULL);
-            Alarm* next_alarm = app.alarm_m_->GetProximateAlarm(now);
-            if (next_alarm != nullptr) {
+            auto next_alarm = app.alarm_m_->GetProximateAlarm(now);
+            if (next_alarm.has_value()) {
                 has_active_alarm = true;
                 ESP_LOGI(TAG, "检测到活动闹钟 '%s'，将保留闹钟功能", next_alarm->name.c_str());
             }

@@ -62,14 +62,85 @@ https://github.com/eclipse-paho/paho.mqtt.java
 ## 3) Alarm（闹钟管理）
 - 名称：`Alarm`
 - 可用方法：
-  - `SetAlarm`（设置闹钟：秒数 + 名称）
+  - `SetAlarm`（设置闹钟：秒数 + 名称 + 可选重复类型）
   - `CancelAlarm`（取消闹钟：名称）
 
+### SetAlarm 参数说明
+- `second_from_now`（必填）：整数，闹钟多少秒后首次触发
+- `alarm_name`（必填）：字符串，闹钟名称（1-64字符，同名会覆盖）
+- `repeat_type`（可选）：整数，重复类型，默认 0
+  - `0` = ONCE（一次性，触发后自动删除）
+  - `1` = DAILY（每天重复）
+  - `2` = WEEKLY（每周指定日期重复）
+  - `3` = WORKDAYS（工作日：周一到周五）
+  - `4` = WEEKENDS（周末：周六周日）
+- `repeat_days`（可选）：整数，周几掩码（仅 `repeat_type=2` 时使用）
+  - bit0 = 周日 (1)
+  - bit1 = 周一 (2)
+  - bit2 = 周二 (4)
+  - bit3 = 周三 (8)
+  - bit4 = 周四 (16)
+  - bit5 = 周五 (32)
+  - bit6 = 周六 (64)
+  - 示例：周一三五 = 2+8+32 = 42
+
+### 使用示例
+
+**一次性闹钟（触发后自动删除）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 60, "alarm_name": "测试闹钟" } },
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 60, "alarm_name": "测试闹钟" } }
+  ]
+}
+```
+
+**每天重复闹钟**：
+```json
+{
+  "type": "iot",
+  "commands": [
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 120, "alarm_name": "每日提醒", "repeat_type": 1 } }
+  ]
+}
+```
+
+**每周一、三、五重复**：
+```json
+{
+  "type": "iot",
+  "commands": [
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 90, "alarm_name": "健身提醒", "repeat_type": 2, "repeat_days": 42 } }
+  ]
+}
+```
+
+**工作日闹钟（周一到周五）**：
+```json
+{
+  "type": "iot",
+  "commands": [
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 300, "alarm_name": "起床闹钟", "repeat_type": 3 } }
+  ]
+}
+```
+
+**周末闹钟**：
+```json
+{
+  "type": "iot",
+  "commands": [
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 600, "alarm_name": "周末晨练", "repeat_type": 4 } }
+  ]
+}
+```
+
+**取消闹钟**：
+```json
+{
+  "type": "iot",
+  "commands": [
     { "name": "Alarm", "method": "CancelAlarm", "parameters": { "alarm_name": "测试闹钟" } }
   ]
 }
@@ -167,7 +238,12 @@ https://github.com/eclipse-paho/paho.mqtt.java
   - Speaker：扬声器状态
     - volume：整数，当前音量（0-100）
   - Alarm：闹钟状态
-    - alarms：数组，当前闹钟列表
+    - alarms：数组，当前闹钟列表（每个闹钟对象包含以下字段）
+      - name：字符串，闹钟名称
+      - time：整数，下次触发的Unix时间戳（秒）
+      - repeat_type：整数，重复类型（0=ONCE, 1=DAILY, 2=WEEKLY, 3=WORKDAYS, 4=WEEKENDS）
+      - repeat_days：整数，周几掩码（仅WEEKLY类型使用）
+      - enabled：布尔值，是否启用
   - ImageDisplay：图片显示状态
     - mode：字符串，显示模式（"animated" 或 "static"）
   - MusicPlayer：音乐播放器状态
@@ -175,9 +251,14 @@ https://github.com/eclipse-paho/paho.mqtt.java
     - song_title：字符串，当前歌曲标题（如果显示中）
     - artist_name：字符串，当前艺术家名称（如果显示中）
 
-示例：
+示例（无闹钟）：
 ```json
 {"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
+```
+
+示例（包含闹钟）：
+```json
+{"type":"telemetry","online":true,"ts":1760371234,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.0","mac":"b8:f8:62:f0:b3:58","client_id":"719ae1ad-9f2c-4277-9c99-1a317a478979","battery":{"level":95,"charging":false,"discharging":true},"memory":{"free_internal":45678,"min_free_internal":15234},"wifi":{"rssi":-68},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[{"name":"daily_morning","time":1760414400,"repeat_type":1,"repeat_days":0,"enabled":true},{"name":"weekly_meeting","time":1760457600,"repeat_type":2,"repeat_days":42,"enabled":true}]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
 ```
 
 ## 指令执行结果上报（ACK）
@@ -268,3 +349,68 @@ https://github.com/eclipse-paho/paho.mqtt.java
 - **提高可靠性**：彻底解决 "send failed, but message may still reach server" 的不确定性问题
 - **服务器端**：必须对所有带 `message_id` 的 ACK 消息回复 `ack_receipt` 确认
 - **向后兼容**：现有代码无需修改，自动享有新的可靠性保障
+
+---
+
+## 附录：闹钟功能快速测试
+
+### 使用在线MQTT调试工具测试
+
+访问：https://cloud.emqx.com/console/deployments/x6bf310e/online_test
+
+**连接参数**：
+- 用户名：`xiaoqiao`
+- 密码：`dzkj0000`
+
+**发布主题**：`devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink`
+
+### 快速测试命令集
+
+**1. 一次性闹钟（30秒后触发）**
+```json
+{"method":"SetAlarm","parameters":{"second_from_now":30,"alarm_name":"test_once"}}
+```
+
+**2. 每天重复闹钟（60秒后首次触发）**
+```json
+{"method":"SetAlarm","parameters":{"second_from_now":60,"alarm_name":"test_daily","repeat_type":1}}
+```
+
+**3. 每周一三五闹钟（90秒后首次触发）**
+```json
+{"method":"SetAlarm","parameters":{"second_from_now":90,"alarm_name":"test_weekly","repeat_type":2,"repeat_days":42}}
+```
+
+**4. 工作日闹钟（120秒后首次触发）**
+```json
+{"method":"SetAlarm","parameters":{"second_from_now":120,"alarm_name":"test_workdays","repeat_type":3}}
+```
+
+**5. 周末闹钟（150秒后首次触发）**
+```json
+{"method":"SetAlarm","parameters":{"second_from_now":150,"alarm_name":"test_weekends","repeat_type":4}}
+```
+
+**6. 取消闹钟**
+```json
+{"method":"CancelAlarm","parameters":{"alarm_name":"test_once"}}
+```
+
+### 周几掩码计算参考
+
+| 星期 | 位值 | 十进制 |
+|------|------|--------|
+| 周日 | bit0 | 1      |
+| 周一 | bit1 | 2      |
+| 周二 | bit2 | 4      |
+| 周三 | bit3 | 8      |
+| 周四 | bit4 | 16     |
+| 周五 | bit5 | 32     |
+| 周六 | bit6 | 64     |
+
+**常用组合**：
+- 周一三五：2 + 8 + 32 = **42**
+- 周二四：4 + 16 = **20**
+- 周末：1 + 64 = **65**
+- 工作日：2 + 4 + 8 + 16 + 32 = **62**
+- 每天：1 + 2 + 4 + 8 + 16 + 32 + 64 = **127**
