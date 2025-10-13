@@ -1979,10 +1979,77 @@ void Application::ExecuteLocalIntent(const intent::IntentResult& result) {
     
     auto& thing_manager = iot::ThingManager::GetInstance();
     std::string error;
-    if (!thing_manager.InvokeSync(command, &error)) {
+    bool exec_ok = thing_manager.InvokeSync(command, &error);
+    if (!exec_ok) {
         ESP_LOGE(TAG, "IOT命令执行失败: %s", error.c_str());
     } else {
         ESP_LOGI(TAG, "IOT命令执行成功");
+    }
+    
+    // 向服务端发送本地意图执行结果通知
+    if (notifier_) {
+        cJSON* notification = cJSON_CreateObject();
+        if (notification) {
+            // 基础字段
+            cJSON_AddStringToObject(notification, "type", "local_intent_result");
+            cJSON_AddStringToObject(notification, "status", exec_ok ? "ok" : "error");
+            cJSON_AddNumberToObject(notification, "ts", (double)time(NULL));
+            
+            // 意图类型转字符串
+            const char* intent_type_str = "unknown";
+            switch (result.type) {
+                case intent::IntentType::VOLUME_CONTROL:
+                    intent_type_str = "volume_control";
+                    break;
+                case intent::IntentType::BRIGHTNESS_CONTROL:
+                    intent_type_str = "brightness_control";
+                    break;
+                case intent::IntentType::THEME_CONTROL:
+                    intent_type_str = "theme_control";
+                    break;
+                case intent::IntentType::DISPLAY_MODE_CONTROL:
+                    intent_type_str = "display_mode_control";
+                    break;
+                default:
+                    break;
+            }
+            cJSON_AddStringToObject(notification, "intent_type", intent_type_str);
+            
+            // 设备和方法
+            cJSON_AddStringToObject(notification, "device", result.device_name.c_str());
+            cJSON_AddStringToObject(notification, "method", result.action.c_str());
+            
+            // 参数（复制原有参数）
+            cJSON_AddItemToObject(notification, "parameters", cJSON_Duplicate(parameters, 1));
+            
+            // 置信度
+            cJSON_AddNumberToObject(notification, "confidence", result.confidence);
+            
+            // 错误信息（如果有）
+            if (!exec_ok && !error.empty()) {
+                cJSON_AddStringToObject(notification, "error", error.c_str());
+            }
+            
+            // 获取并附加最新IoT状态
+            std::string states_json;
+            thing_manager.GetStatesJson(states_json, false);
+            if (!states_json.empty() && states_json != "[]") {
+                cJSON* states = cJSON_Parse(states_json.c_str());
+                if (states) {
+                    cJSON_AddItemToObject(notification, "states", states);
+                }
+            }
+            
+            // 使用 PublishAck 发送（QoS=2，内置重试和服务器确认机制）
+            bool sent = notifier_->PublishAck(notification, 2);
+            if (sent) {
+                ESP_LOGD(TAG, "本地意图执行结果已提交发送 (via ack topic, QoS=2)");
+            } else {
+                ESP_LOGD(TAG, "本地意图执行结果加入重试队列 (via ack topic, QoS=2, 等待服务器确认)");
+            }
+            
+            cJSON_Delete(notification);
+        }
     }
     
     cJSON_Delete(command);
