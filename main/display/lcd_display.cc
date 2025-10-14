@@ -368,6 +368,42 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+
+    // 创建中央通知弹窗
+    // 半透明背景遮罩层
+    center_notification_bg_ = lv_obj_create(screen);
+    lv_obj_set_size(center_notification_bg_, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_pos(center_notification_bg_, 0, 0);
+    lv_obj_set_style_bg_color(center_notification_bg_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(center_notification_bg_, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(center_notification_bg_, 0, 0);
+    lv_obj_set_scrollbar_mode(center_notification_bg_, LV_SCROLLBAR_MODE_OFF);
+
+    // 弹窗容器（固定白底黑字，不受主题影响）
+    center_notification_popup_ = lv_obj_create(center_notification_bg_);
+    lv_obj_set_size(center_notification_popup_, LV_HOR_RES * 0.85, LV_SIZE_CONTENT);
+    lv_obj_align(center_notification_popup_, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(center_notification_popup_, lv_color_white(), 0);
+    lv_obj_set_style_radius(center_notification_popup_, 15, 0);
+    lv_obj_set_style_pad_all(center_notification_popup_, 20, 0);
+    lv_obj_set_style_border_width(center_notification_popup_, 2, 0);
+    lv_obj_set_style_border_color(center_notification_popup_, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_shadow_width(center_notification_popup_, 20, 0);
+    lv_obj_set_style_shadow_color(center_notification_popup_, lv_color_black(), 0);
+    lv_obj_set_style_shadow_opa(center_notification_popup_, LV_OPA_30, 0);
+    lv_obj_set_scrollbar_mode(center_notification_popup_, LV_SCROLLBAR_MODE_OFF);
+
+    // 文本标签（固定黑色）
+    center_notification_label_ = lv_label_create(center_notification_popup_);
+    lv_label_set_long_mode(center_notification_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(center_notification_label_, LV_HOR_RES * 0.85 - 40);
+    lv_obj_set_style_text_align(center_notification_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(center_notification_label_, lv_color_black(), 0);
+    lv_label_set_text(center_notification_label_, "");
+    lv_obj_center(center_notification_label_);
+
+    // 初始隐藏
+    lv_obj_add_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
 }
 
 #define  MAX_MESSAGES 20
@@ -635,6 +671,42 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+
+    // 创建中央通知弹窗
+    // 半透明背景遮罩层
+    center_notification_bg_ = lv_obj_create(screen);
+    lv_obj_set_size(center_notification_bg_, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_pos(center_notification_bg_, 0, 0);
+    lv_obj_set_style_bg_color(center_notification_bg_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(center_notification_bg_, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(center_notification_bg_, 0, 0);
+    lv_obj_set_scrollbar_mode(center_notification_bg_, LV_SCROLLBAR_MODE_OFF);
+
+    // 弹窗容器（固定白底黑字，不受主题影响）
+    center_notification_popup_ = lv_obj_create(center_notification_bg_);
+    lv_obj_set_size(center_notification_popup_, LV_HOR_RES * 0.85, LV_SIZE_CONTENT);
+    lv_obj_align(center_notification_popup_, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(center_notification_popup_, lv_color_white(), 0);
+    lv_obj_set_style_radius(center_notification_popup_, 15, 0);
+    lv_obj_set_style_pad_all(center_notification_popup_, 20, 0);
+    lv_obj_set_style_border_width(center_notification_popup_, 2, 0);
+    lv_obj_set_style_border_color(center_notification_popup_, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_shadow_width(center_notification_popup_, 20, 0);
+    lv_obj_set_style_shadow_color(center_notification_popup_, lv_color_black(), 0);
+    lv_obj_set_style_shadow_opa(center_notification_popup_, LV_OPA_30, 0);
+    lv_obj_set_scrollbar_mode(center_notification_popup_, LV_SCROLLBAR_MODE_OFF);
+
+    // 文本标签（固定黑色）
+    center_notification_label_ = lv_label_create(center_notification_popup_);
+    lv_label_set_long_mode(center_notification_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(center_notification_label_, LV_HOR_RES * 0.85 - 40);
+    lv_obj_set_style_text_align(center_notification_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(center_notification_label_, lv_color_black(), 0);
+    lv_label_set_text(center_notification_label_, "");
+    lv_obj_center(center_notification_label_);
+
+    // 初始隐藏
+    lv_obj_add_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
 }
 #endif
 

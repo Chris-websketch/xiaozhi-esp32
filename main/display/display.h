@@ -22,6 +22,8 @@ public:
     virtual void SetStatus(const char* status);
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string &notification, int duration_ms = 3000);
+    virtual void ShowCenterNotification(const char* notification, int duration_ms = 5000);
+    virtual void ShowCenterNotification(const std::string &notification, int duration_ms = 5000);
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
     virtual void SetIcon(const char* icon);
@@ -59,6 +61,9 @@ protected:
     lv_obj_t* chat_message_label_ = nullptr;
     lv_obj_t* low_battery_popup_ = nullptr;
     lv_obj_t* low_battery_label_ = nullptr;
+    lv_obj_t* center_notification_bg_ = nullptr;      // 中央弹窗背景遮罩
+    lv_obj_t* center_notification_popup_ = nullptr;   // 中央弹窗容器
+    lv_obj_t* center_notification_label_ = nullptr;   // 中央弹窗文本标签
     lv_obj_t* canvas_ = nullptr;
     void* canvas_buffer_ = nullptr;
     const char* battery_icon_ = nullptr;
@@ -68,6 +73,7 @@ protected:
 
     esp_timer_handle_t notification_timer_ = nullptr;
     esp_timer_handle_t update_timer_ = nullptr;
+    esp_timer_handle_t center_notification_timer_ = nullptr;
 
     friend class DisplayLockGuard;
     virtual bool Lock(int timeout_ms = 0) = 0;

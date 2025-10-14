@@ -787,7 +787,7 @@ void Application::OnMqttNotification(const cJSON* root) {
         }
         if (!message.empty()) {
             auto display = Board::GetInstance().GetDisplay();
-            display->ShowNotification(message.c_str(), 10000);
+            display->ShowCenterNotification(message.c_str(), 10000);
             if (notifier_) {
                 cJSON* ack = cJSON_CreateObject();
                 cJSON_AddStringToObject(ack, "type", "ack");

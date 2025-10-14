@@ -48,6 +48,22 @@ Display::Display() {
     ESP_ERROR_CHECK(esp_timer_create(&update_display_timer_args, &update_timer_));
     // 不立即启动定时器，等待音频系统初始化完成后再启动
 
+    // Center notification timer
+    esp_timer_create_args_t center_notification_timer_args = {
+        .callback = [](void *arg) {
+            Display *display = static_cast<Display*>(arg);
+            DisplayLockGuard lock(display);
+            if (display->center_notification_bg_ != nullptr) {
+                lv_obj_add_flag(display->center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
+            }
+        },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "center_notification_timer",
+        .skip_unhandled_events = false,
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&center_notification_timer_args, &center_notification_timer_));
+
     // Create a power management lock
     auto ret = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "display_update", &pm_lock_);
     if (ret == ESP_ERR_NOT_SUPPORTED) {
@@ -65,6 +81,10 @@ Display::~Display() {
     if (update_timer_ != nullptr) {
         esp_timer_stop(update_timer_);
         esp_timer_delete(update_timer_);
+    }
+    if (center_notification_timer_ != nullptr) {
+        esp_timer_stop(center_notification_timer_);
+        esp_timer_delete(center_notification_timer_);
     }
 
     if (network_label_ != nullptr) {
@@ -109,6 +129,27 @@ void Display::ShowNotification(const char* notification, int duration_ms) {
 
     esp_timer_stop(notification_timer_);
     ESP_ERROR_CHECK(esp_timer_start_once(notification_timer_, duration_ms * 1000));
+}
+
+void Display::ShowCenterNotification(const std::string &notification, int duration_ms) {
+    ShowCenterNotification(notification.c_str(), duration_ms);
+}
+
+void Display::ShowCenterNotification(const char* notification, int duration_ms) {
+    ESP_LOGI(TAG, "ShowCenterNotification called: %s, duration: %dms", notification, duration_ms);
+    DisplayLockGuard lock(this);
+    if (center_notification_label_ == nullptr || center_notification_bg_ == nullptr) {
+        ESP_LOGE(TAG, "Center notification objects not initialized! label=%p, bg=%p", 
+                 center_notification_label_, center_notification_bg_);
+        return;
+    }
+    ESP_LOGI(TAG, "Setting notification text and showing popup");
+    lv_label_set_text(center_notification_label_, notification);
+    lv_obj_clear_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
+
+    esp_timer_stop(center_notification_timer_);
+    ESP_ERROR_CHECK(esp_timer_start_once(center_notification_timer_, duration_ms * 1000));
+    ESP_LOGI(TAG, "Center notification displayed successfully");
 }
 
 void Display::Update() {
