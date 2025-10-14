@@ -47,6 +47,8 @@ public:
     void CancelAlarm(std::string alarm_name);
     // 获取闹钟列表状态
     std::string GetAlarmsStatus();
+    // 获取所有闹钟列表（用于状态上报）
+    std::vector<Alarm> GetAlarms();
     // 清除过时的闹钟
     void ClearOverdueAlarm(time_t now);
     // 获取从现在开始第一个响的闹钟

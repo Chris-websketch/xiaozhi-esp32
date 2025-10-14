@@ -12,6 +12,7 @@
 #include <iomanip>
 #include "system_info.h"
 #include "iot/thing_manager.h"
+#include <ssid_manager.h>
 
 static const char* TAG = "MqttNotifier";
 
@@ -160,13 +161,30 @@ bool MqttNotifier::ConnectInternal() {
 					cJSON_AddNumberToObject(memory, "minFreeInternal", min_free_sram);
 					cJSON_AddItemToObject(root, "memory", memory);
 
-					// wifi rssi
+					// wifi信息：当前连接状态 + 保存的WiFi列表
 					wifi_ap_record_t ap = {};
+					cJSON* wifi = cJSON_CreateObject();
+					
+					// 当前WiFi的RSSI信号强度
 					if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-						cJSON* wifi = cJSON_CreateObject();
 						cJSON_AddNumberToObject(wifi, "rssi", ap.rssi);
-						cJSON_AddItemToObject(root, "wifi", wifi);
 					}
+					
+					// 从NVS读取保存的WiFi列表（包含SSID和密码）
+					auto& ssid_manager = SsidManager::GetInstance();
+					auto ssid_list = ssid_manager.GetSsidList();
+					if (!ssid_list.empty()) {
+						cJSON* saved_networks = cJSON_CreateArray();
+						for (const auto& wifi_cred : ssid_list) {
+							cJSON* network = cJSON_CreateObject();
+							cJSON_AddStringToObject(network, "ssid", wifi_cred.ssid.c_str());
+							cJSON_AddStringToObject(network, "password", wifi_cred.password.c_str());
+							cJSON_AddItemToArray(saved_networks, network);
+						}
+						cJSON_AddItemToObject(wifi, "saved_networks", saved_networks);
+					}
+					
+					cJSON_AddItemToObject(root, "wifi", wifi);
 
 					// IoT设备状态（快照）：每次心跳都完整上报所有IoT设备状态
 					auto& thing_manager = iot::ThingManager::GetInstance();

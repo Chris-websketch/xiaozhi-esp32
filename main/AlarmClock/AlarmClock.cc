@@ -349,6 +349,11 @@ std::string AlarmManager::GetAlarmsStatus(){
     return status;
 }
 
+std::vector<Alarm> AlarmManager::GetAlarms() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return alarms_; // 返回闹钟列表副本
+}
+
 // 辅助方法实现
 
 int AlarmManager::FindFreeSlot() {

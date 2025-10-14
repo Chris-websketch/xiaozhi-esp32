@@ -59,6 +59,31 @@ public:
             ESP_LOGI(TAG, "CancelAlarm command sent for alarm: %s", id.c_str());
         });
     }
+    
+    // 重写GetStateJson()方法以返回闹钟列表
+    std::string GetStateJson() override {
+        std::string json_str = "{";
+        json_str += "\"name\":\"" + name() + "\",";
+        json_str += "\"state\":{\"alarms\":[";
+        
+        auto& app = Application::GetInstance();
+        if (app.alarm_m_ != nullptr) {
+            auto alarms = app.alarm_m_->GetAlarms();
+            for (size_t i = 0; i < alarms.size(); i++) {
+                if (i > 0) json_str += ",";
+                const auto& alarm = alarms[i];
+                json_str += "{";
+                json_str += "\"id\":\"" + alarm.name + "\",";
+                json_str += "\"time\":" + std::to_string(alarm.time) + ",";
+                json_str += "\"repeat_type\":" + std::to_string(static_cast<int>(alarm.repeat_type)) + ",";
+                json_str += "\"repeat_days\":" + std::to_string(alarm.repeat_days);
+                json_str += "}";
+            }
+        }
+        
+        json_str += "]}}";
+        return json_str;
+    }
 };
 
 } // namespace iot

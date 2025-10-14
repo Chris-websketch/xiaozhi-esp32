@@ -36,9 +36,9 @@ public:
 	// 向 uplink 主题发布自定义 JSON（QoS=0 默认）
 	bool PublishUplink(const char* json, int qos = 0);
 	bool PublishUplink(const cJSON* root, int qos = 0);
-	// 向独立 ACK 主题发布指令执行结果（默认 QoS=1）
-	bool PublishAck(const char* json, int qos = 1);
-	bool PublishAck(const cJSON* root, int qos = 1);
+	// 向独立 ACK 主题发布指令执行结果（默认 QoS=0，快速发送不等待确认）
+	bool PublishAck(const char* json, int qos = 0);
+	bool PublishAck(const cJSON* root, int qos = 0);
 
 private:
 	// 读取当前配置到成员变量，返回是否配置有效

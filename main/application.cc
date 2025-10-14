@@ -747,7 +747,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                     cJSON_AddStringToObject(ack, "status", "ok");
                     cJSON_AddNumberToObject(ack, "delay_ms", delay_ms);
                     add_request_id_if_any(ack);
-                    notifier_->PublishAck(ack, 1);
+                    notifier_->PublishAck(ack);
                     cJSON_Delete(ack);
                 }
                 auto display = Board::GetInstance().GetDisplay();
@@ -768,7 +768,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                 cJSON_AddStringToObject(ack, "status", "error");
                 cJSON_AddStringToObject(ack, "error", "unsupported action");
                 add_request_id_if_any(ack);
-                notifier_->PublishAck(ack, 1);
+                notifier_->PublishAck(ack);
                 cJSON_Delete(ack);
             }
         }
@@ -794,7 +794,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                 cJSON_AddStringToObject(ack, "target", "notify");
                 cJSON_AddStringToObject(ack, "status", "ok");
                 add_request_id_if_any(ack);
-                notifier_->PublishAck(ack, 1);
+                notifier_->PublishAck(ack);
                 cJSON_Delete(ack);
             }
         } else {
@@ -805,7 +805,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                 cJSON_AddStringToObject(ack, "status", "error");
                 cJSON_AddStringToObject(ack, "error", "empty notification");
                 add_request_id_if_any(ack);
-                notifier_->PublishAck(ack, 1);
+                notifier_->PublishAck(ack);
                 cJSON_Delete(ack);
             }
         }
@@ -855,7 +855,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                         if (!req_id_str.empty()) {
                             cJSON_AddStringToObject(ack, "request_id", req_id_str.c_str());
                         }
-                        notifier_->PublishAck(ack, 1);
+                        notifier_->PublishAck(ack);
                         cJSON_Delete(ack);
                     }
                     cJSON_Delete(cmd);
@@ -2040,12 +2040,12 @@ void Application::ExecuteLocalIntent(const intent::IntentResult& result) {
                 }
             }
             
-            // 使用 PublishAck 发送（QoS=1，保证至少一次送达）
-            bool sent = notifier_->PublishAck(notification, 1);
+            // 使用 PublishAck 发送（QoS=0，快速发送不等待确认）
+            bool sent = notifier_->PublishAck(notification);
             if (sent) {
-                ESP_LOGD(TAG, "本地意图执行结果已提交发送 (via ack topic, QoS=1)");
+                ESP_LOGD(TAG, "本地意图执行结果已提交发送 (via ack topic, QoS=0)");
             } else {
-                ESP_LOGD(TAG, "本地意图执行结果加入重试队列 (via ack topic, QoS=2, 等待服务器确认)");
+                ESP_LOGD(TAG, "本地意图执行结果发送失败");
             }
             
             cJSON_Delete(notification);
