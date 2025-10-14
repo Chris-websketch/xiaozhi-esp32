@@ -302,7 +302,8 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
             return BuildAndRestart() ? ESP_OK : ESP_FAIL;
         }
         
-        return ESP_ERR_NOT_FOUND;
+        ESP_LOGI(TAG, "打包文件已存在且有效，无需更新");
+        return ESP_OK;  // 资源和打包文件都正常，返回成功
     }
     
     // 设置下载任务标志

@@ -191,8 +191,13 @@ void Display::Update() {
             };
             icon = levels[battery_level / 20];
         }
-        // 电池图标现在通过时钟页面定时器更新，这里只处理低电量弹窗
+        
+        // 更新状态栏的电池图标
+        if (battery_label_ != nullptr) {
+            lv_label_set_text(battery_label_, icon);
+        }
 
+        // 处理低电量弹窗
         if (low_battery_popup_ != nullptr) {
             if (strcmp(icon, FONT_AWESOME_BATTERY_EMPTY) == 0 && discharging) {
                 if (lv_obj_has_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN)) { // 如果低电量提示框隐藏，则显示

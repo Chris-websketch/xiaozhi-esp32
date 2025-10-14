@@ -658,31 +658,11 @@ void Application::Start() {
     wake_word_detect_.Initialize(codec);
     wake_word_detect_.OnWakeWordDetected([this](const std::string& wake_word) {
         Schedule([this, &wake_word]() {
-            if (device_state_ == kDeviceStateIdle) {
-                SetDeviceState(kDeviceStateConnecting);
-                wake_word_detect_.EncodeWakeWordData();
-
-                // Reset timeout invalidation flag when attempting new connection
-                protocol_invalidated_by_timeout_ = false;
-                if (!protocol_->OpenAudioChannel()) {
-                    wake_word_detect_.StartDetection();
-                    return;
-                }
-                
-                std::vector<uint8_t> opus;
-                // Encode and send the wake word data to the server
-                while (wake_word_detect_.GetWakeWordOpus(opus)) {
-                    protocol_->SendAudio(opus);
-                }
-                // Set the chat state to wake word detected
-                protocol_->SendWakeWordDetected(wake_word);
-                ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
-                SetListeningMode(realtime_chat_enabled_ ? kListeningModeRealtime : kListeningModeAutoStop);
-            } else if (device_state_ == kDeviceStateSpeaking) {
-                AbortSpeaking(kAbortReasonWakeWordDetected);
-            } else if (device_state_ == kDeviceStateActivating) {
-                SetDeviceState(kDeviceStateIdle);
-            }
+            // 优化：唤醒词检测走按键唤醒的路线，统一使用WakeWordInvoke
+            ESP_LOGI(TAG, "Wake word detected: %s, invoking button wake logic", wake_word.c_str());
+            
+            // 调用WakeWordInvoke统一处理唤醒逻辑
+            WakeWordInvoke(wake_word);
         });
     });
     wake_word_detect_.StartDetection();

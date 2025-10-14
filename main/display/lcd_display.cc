@@ -587,7 +587,7 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_pad_all(container_, 0, 0);
     lv_obj_set_style_border_width(container_, 0, 0);
     lv_obj_set_style_pad_row(container_, 0, 0);
-    lv_obj_set_style_bg_color(container_, current_theme.background, 0);
+    lv_obj_set_style_bg_opa(container_, LV_OPA_TRANSP, 0);  // 设置为透明，不遮挡底层图片
     lv_obj_set_style_border_color(container_, current_theme.border, 0);
 
     /* Status bar */
@@ -604,7 +604,7 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_width(content_, LV_HOR_RES);
     lv_obj_set_flex_grow(content_, 1);
     lv_obj_set_style_pad_all(content_, 5, 0);
-    lv_obj_set_style_bg_color(content_, current_theme.chat_background, 0);
+    lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);  // 设置为透明，不遮挡底层图片
     lv_obj_set_style_border_color(content_, current_theme.border, 0); // Border color for content
 
     // 新增：启用纵向滚动并隐藏滚动条，防止内容撑大布局
@@ -654,11 +654,11 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_font(mute_label_, fonts_.icon_font, 0);
     lv_obj_set_style_text_color(mute_label_, current_theme.text, 0);
 
-    // 电池标签已删除 - 不再显示电量UI
-    // battery_label_ = lv_label_create(status_bar_);
-    // lv_label_set_text(battery_label_, "");
-    // lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
-    // lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
+    // 恢复电池标签显示 - 显示在状态栏最右边
+    battery_label_ = lv_label_create(status_bar_);
+    lv_label_set_text(battery_label_, "");
+    lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
+    lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
 
     low_battery_popup_ = lv_obj_create(screen);
     lv_obj_set_scrollbar_mode(low_battery_popup_, LV_SCROLLBAR_MODE_OFF);

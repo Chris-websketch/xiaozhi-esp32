@@ -2339,12 +2339,9 @@ private:
         bool has_errors = false;
         
         if (all_resources_result == ESP_OK) {
-            ESP_LOGI(TAG, "图片资源更新完成（一次API请求完成所有下载）");
-            has_updates = true;
-        } else if (all_resources_result == ESP_ERR_NOT_FOUND) {
-            ESP_LOGI(TAG, "所有图片资源已是最新版本，无需更新");
+            ESP_LOGI(TAG, "图片资源检查完成（资源已是最新版本或更新成功）");
             
-            // 资源无需更新，设备就绪，播放开机成功提示音
+            // 资源正常，设备就绪，播放开机成功提示音
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateIdle) {
                 ESP_LOGI(TAG, "设备就绪，播放开机成功提示音");
