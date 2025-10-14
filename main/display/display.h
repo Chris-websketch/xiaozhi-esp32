@@ -31,6 +31,12 @@ public:
     virtual std::string GetTheme() { return current_theme_name_; }
     virtual void SetIdle(bool status){};
     
+    // 天气时钟相关接口
+    virtual void SetClockMode(bool enabled) {};
+    virtual void UpdateClockDisplay() {};
+    virtual void UpdateWeatherData() {};
+    virtual void UpdateWeatherDisplay() {};
+    
     virtual void StartUpdateTimer();
     
     virtual void CreateCanvas();

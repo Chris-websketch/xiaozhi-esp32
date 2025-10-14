@@ -660,7 +660,6 @@ void Application::Start() {
         Schedule([this, &wake_word]() {
             if (device_state_ == kDeviceStateIdle) {
                 SetDeviceState(kDeviceStateConnecting);
-                wake_word_detect_.EncodeWakeWordData();
 
                 // Reset timeout invalidation flag when attempting new connection
                 protocol_invalidated_by_timeout_ = false;
@@ -668,16 +667,12 @@ void Application::Start() {
                     wake_word_detect_.StartDetection();
                     return;
                 }
-                
-                std::vector<uint8_t> opus;
-                // Encode and send the wake word data to the server
-                while (wake_word_detect_.GetWakeWordOpus(opus)) {
-                    protocol_->SendAudio(opus);
-                }
-                // Set the chat state to wake word detected
+
+                // 发送唤醒词检测消息，和按键唤醒流程一致
                 protocol_->SendWakeWordDetected(wake_word);
                 ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
-                SetListeningMode(realtime_chat_enabled_ ? kListeningModeRealtime : kListeningModeAutoStop);
+                
+                // OnAudioChannelOpened回调会自动调用SetListeningMode
             } else if (device_state_ == kDeviceStateSpeaking) {
                 AbortSpeaking(kAbortReasonWakeWordDetected);
             } else if (device_state_ == kDeviceStateActivating) {

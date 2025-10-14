@@ -8,6 +8,10 @@
 #include "assets/lang_config.h"
 #include <cstring>
 #include "settings.h"
+#include <mutex>
+#include <cJSON.h>
+#include <esp_wifi.h>
+#include <lvgl.h>
 
 #include "board.h"
 
@@ -350,12 +354,12 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(network_label_, current_theme.text, 0);
     lv_obj_set_style_margin_left(network_label_, 5, 0); // 添加左边距，与前面的元素分隔
 
-    // 电池标签已删除 - 不再显示电量UI
-    // battery_label_ = lv_label_create(status_bar_);
-    // lv_label_set_text(battery_label_, "");
-    // lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
-    // lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
-    // lv_obj_set_style_margin_left(battery_label_, 5, 0); // 添加左边距，与前面的元素分隔
+    // 电池标签 - 显示在状态栏最右边
+    battery_label_ = lv_label_create(status_bar_);
+    lv_label_set_text(battery_label_, "");
+    lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
+    lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
+    lv_obj_set_style_margin_left(battery_label_, 5, 0); // 添加左边距，与前面的元素分隔
 
     low_battery_popup_ = lv_obj_create(screen);
     lv_obj_set_scrollbar_mode(low_battery_popup_, LV_SCROLLBAR_MODE_OFF);
@@ -654,11 +658,11 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_font(mute_label_, fonts_.icon_font, 0);
     lv_obj_set_style_text_color(mute_label_, current_theme.text, 0);
 
-    // 电池标签已删除 - 不再显示电量UI
-    // battery_label_ = lv_label_create(status_bar_);
-    // lv_label_set_text(battery_label_, "");
-    // lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
-    // lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
+    // 电池标签 - 显示在状态栏最右边
+    battery_label_ = lv_label_create(status_bar_);
+    lv_label_set_text(battery_label_, "");
+    lv_obj_set_style_text_font(battery_label_, fonts_.icon_font, 0);
+    lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
 
     low_battery_popup_ = lv_obj_create(screen);
     lv_obj_set_scrollbar_mode(low_battery_popup_, LV_SCROLLBAR_MODE_OFF);
@@ -769,8 +773,9 @@ void LcdDisplay::SetTheme(const std::string& theme_name) {
         if (mute_label_ != nullptr) {
             lv_obj_set_style_text_color(mute_label_, current_theme.text, 0);
         }
-                // 电池标签已删除 - 不再更新电池标签文本颜色
-                // if (battery_label_ != nullptr) {            lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);        }        // 移除对emotion_label_的引用
+        if (battery_label_ != nullptr) {
+            lv_obj_set_style_text_color(battery_label_, current_theme.text, 0);
+        }
     }
     
     // Update content area colors
@@ -912,4 +917,908 @@ void LcdDisplay::SetTheme(const std::string& theme_name) {
 
     // No errors occurred. Save theme to settings
     Display::SetTheme(theme_name);
+}
+
+// ==================== 天气时钟功能实现 ====================
+
+// 农历缓存结构
+struct LunarCache {
+    std::string date;
+    std::string lunar_str;
+    std::string ganzhi_year;
+};
+
+// 全局变量
+static LunarCache g_lunar_cache;
+static std::mutex g_lunar_mutex;
+static std::vector<std::string> g_lunar_yi;
+static std::vector<std::string> g_lunar_ji;
+
+// 声明天气图标和时钟字体
+LV_IMAGE_DECLARE(sun);
+LV_IMAGE_DECLARE(cloud);
+LV_IMAGE_DECLARE(rain);
+LV_IMAGE_DECLARE(Snow);
+LV_IMAGE_DECLARE(fog);
+LV_IMAGE_DECLARE(Dust);
+LV_IMAGE_DECLARE(hail);
+LV_IMAGE_DECLARE(thunder);
+LV_IMAGE_DECLARE(Negative);
+
+LV_FONT_DECLARE(time50);
+LV_FONT_DECLARE(time40);
+LV_FONT_DECLARE(time30);
+LV_FONT_DECLARE(time20);
+
+// 天气图标映射
+static const struct {
+    const char* code;
+    const lv_image_dsc_t* image;
+} weather_icons[] = {
+    {"100", &sun},
+    {"101", &cloud},
+    {"104", &cloud},
+    {"300", &rain},
+    {"302", &thunder},
+    {"305", &rain},
+    {"306", &rain},
+    {"307", &rain},
+    {"400", &Snow},
+    {"401", &Snow},
+    {"501", &fog},
+    {"502", &Dust},
+    {"503", &Dust},
+    {"504", &fog},
+    {"999", &Negative},
+};
+
+// 获取天气图标
+static const lv_image_dsc_t* getWeatherIcon(const std::string& code) {
+    for (const auto& item : weather_icons) {
+        if (item.code == code) {
+            return item.image;
+        }
+    }
+    return &cloud;
+}
+
+// 农历获取任务
+static void LunarFetchTask(void*) {
+    ESP_LOGI(TAG, "Lunar fetch task started, waiting for WiFi connection...");
+    
+    // 等待WiFi连接（最多30秒）
+    int wait_count = 0;
+    while (wait_count < 30) {
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            ESP_LOGI(TAG, "WiFi connected, starting lunar data fetch");
+            break;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        wait_count++;
+    }
+    
+    if (wait_count >= 30) {
+        ESP_LOGW(TAG, "WiFi not connected after 30 seconds, will retry later");
+    }
+    
+    while (1) {
+        wifi_ap_record_t ap_info;
+        bool wifi_connected = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
+        
+        if (!wifi_connected) {
+            vTaskDelay(10000 / portTICK_PERIOD_MS);
+            continue;
+        }
+        
+        time_t now = time(NULL);
+        struct tm* timeinfo = localtime(&now);
+        char ymd[16];
+        strftime(ymd, sizeof(ymd), "%Y-%m-%d", timeinfo);
+        std::string today = ymd;
+        
+        bool need_query = false;
+        {
+            std::lock_guard<std::mutex> lock(g_lunar_mutex);
+            if (g_lunar_cache.date != today) {
+                need_query = true;
+            }
+        }
+        
+        if (need_query) {
+            std::string alapi_token = "aswutdoxli64xvjqy3rxswygvdb75u";
+            std::string url = "https://v2.alapi.cn/api/lunar?token=" + alapi_token;
+            
+            ESP_LOGI(TAG, "Fetching lunar data from: %s", url.c_str());
+            
+            auto http = Board::GetInstance().CreateHttp();
+            if (http && http->Open("GET", url)) {
+                std::string response = http->GetBody();
+                http->Close();
+                delete http;
+                
+                ESP_LOGI(TAG, "Lunar API response: %s", response.c_str());
+                
+                cJSON* root = cJSON_Parse(response.c_str());
+                if (root) {
+                    // 检查API返回状态
+                    cJSON* code = cJSON_GetObjectItem(root, "code");
+                    if (code && code->valueint != 200) {
+                        ESP_LOGE(TAG, "Lunar API error code: %d", code->valueint);
+                        cJSON* msg = cJSON_GetObjectItem(root, "msg");
+                        if (msg && msg->valuestring) {
+                            ESP_LOGE(TAG, "Lunar API error msg: %s", msg->valuestring);
+                        }
+                        cJSON_Delete(root);
+                        vTaskDelay(60000 / portTICK_PERIOD_MS);
+                        continue;
+                    }
+                    
+                    cJSON* data = cJSON_GetObjectItem(root, "data");
+                    if (data) {
+                        cJSON* lunar_month = cJSON_GetObjectItem(data, "lunar_month_chinese");
+                        cJSON* lunar_day = cJSON_GetObjectItem(data, "lunar_day_chinese");
+                        
+                        if (!lunar_month || !lunar_month->valuestring || !lunar_day || !lunar_day->valuestring) {
+                            ESP_LOGE(TAG, "Lunar data missing month or day field");
+                            cJSON_Delete(root);
+                            vTaskDelay(60000 / portTICK_PERIOD_MS);
+                            continue;
+                        }
+                        
+                        std::string lunar_str = std::string(lunar_month->valuestring) + lunar_day->valuestring;
+                        
+                        cJSON* ganzhi_year_json = cJSON_GetObjectItem(data, "ganzhi_year");
+                        std::string ganzhi_year = "";
+                        if (ganzhi_year_json && ganzhi_year_json->valuestring) {
+                            ganzhi_year = ganzhi_year_json->valuestring;
+                        }
+                        
+                        cJSON* yi_arr = cJSON_GetObjectItem(data, "yi");
+                        cJSON* ji_arr = cJSON_GetObjectItem(data, "ji");
+                        
+                        std::lock_guard<std::mutex> lock(g_lunar_mutex);
+                        g_lunar_yi.clear();
+                        g_lunar_ji.clear();
+                        
+                        if (yi_arr && cJSON_IsArray(yi_arr)) {
+                            for (int i = 0; i < cJSON_GetArraySize(yi_arr); ++i) {
+                                cJSON* item = cJSON_GetArrayItem(yi_arr, i);
+                                if (item && item->valuestring) {
+                                    g_lunar_yi.push_back(item->valuestring);
+                                }
+                            }
+                        }
+                        
+                        if (ji_arr && cJSON_IsArray(ji_arr)) {
+                            for (int i = 0; i < cJSON_GetArraySize(ji_arr); ++i) {
+                                cJSON* item = cJSON_GetArrayItem(ji_arr, i);
+                                if (item && item->valuestring) {
+                                    g_lunar_ji.push_back(item->valuestring);
+                                }
+                            }
+                        }
+                        
+                        g_lunar_cache.date = today;
+                        g_lunar_cache.lunar_str = lunar_str;
+                        g_lunar_cache.ganzhi_year = ganzhi_year;
+                        
+                        ESP_LOGI(TAG, "Lunar data updated: %s %s", ganzhi_year.c_str(), lunar_str.c_str());
+                    } else {
+                        ESP_LOGE(TAG, "Lunar API: data field not found");
+                    }
+                    cJSON_Delete(root);
+                } else {
+                    ESP_LOGE(TAG, "Failed to parse lunar JSON response");
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to open lunar API connection");
+            }
+        }
+        
+        vTaskDelay(24 * 60 * 60 * 1000 / portTICK_PERIOD_MS);
+    }
+}
+
+/**
+ * @brief 初始化天气时钟界面
+ * 
+ * 创建一个包含以下区域的全屏天气时钟界面：
+ * 1. 顶部区域（高40px）：左侧显示城市名称，右侧显示日期星期
+ * 2. 主时间卡片（高95px）：大字号时间显示 + 宜忌信息 + 农历日期
+ * 3. 天气信息卡片（高65px）：天气图标、天气描述、当前温度、温度范围
+ * 4. 详细参数区域（高70px）：体感温度、湿度、风力、风向四个指标
+ * 
+ * UI布局采用LVGL的flex布局和align对齐方式，整体采用卡片式设计
+ */
+void LcdDisplay::SetupWeatherClock() {
+    // 防止重复创建：如果时钟屏幕已存在则直接返回
+    if (clock_screen_ != nullptr) {
+        return;
+    }
+    
+    // 获取显示锁，确保LVGL操作的线程安全
+    DisplayLockGuard lock(this);
+    
+    // 保存当前活动的主屏幕引用，用于后续切换回主界面
+    main_screen_ = lv_screen_active();
+    
+    // ========== 创建时钟屏幕基础容器 ==========
+    clock_screen_ = lv_obj_create(NULL);  // 创建独立的屏幕对象（不依附于其他父对象）
+    lv_obj_set_style_bg_color(clock_screen_, lv_color_white(), 0);  // 设置白色背景
+    lv_obj_set_scrollbar_mode(clock_screen_, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    
+    // ========== 1. 顶部信息栏：城市名称和日期星期 ==========
+    // 创建顶部容器（透明背景，无边框）
+    lv_obj_t* top_area = lv_obj_create(clock_screen_);
+    lv_obj_set_size(top_area, 240, 40);  // 全屏宽度240px，高度40px
+    lv_obj_set_style_bg_opa(top_area, LV_OPA_0, 0);  // 完全透明背景
+    lv_obj_set_style_border_width(top_area, 0, 0);  // 无边框
+    lv_obj_set_scrollbar_mode(top_area, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 10);  // 顶部居中对齐，向下偏移10px
+    
+    // 左侧：城市名称标签（通过天气API获取）
+    weather_city_ = lv_label_create(top_area);
+    lv_obj_set_style_text_font(weather_city_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_city_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_city_, "加载中...");  // 初始占位文本
+    lv_obj_align(weather_city_, LV_ALIGN_LEFT_MID, 10, 0);  // 左侧居中对齐，右移10px
+    
+    // 右侧：日期星期标签（格式：MM月DD日 周X）
+    clock_date_label_ = lv_label_create(top_area);
+    lv_obj_set_style_text_font(clock_date_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(clock_date_label_, lv_color_make(80, 80, 80), 0);  // 中灰色文字
+    lv_label_set_text(clock_date_label_, "12月25日 周一");  // 初始占位文本
+    lv_obj_align(clock_date_label_, LV_ALIGN_RIGHT_MID, -10, 0);  // 右侧居中对齐，左移10px
+    
+    // ========== 2. 主时间卡片：时间显示 + 黄历宜忌 + 农历日期 ==========
+    // 创建主卡片容器（浅灰色背景，圆角，带阴影）
+    lv_obj_t* main_card = lv_obj_create(clock_screen_);
+    lv_obj_set_size(main_card, 220, 95);  // 宽220px，高95px
+    lv_obj_set_style_bg_color(main_card, lv_color_make(245, 245, 245), 0);  // 浅灰色背景
+    lv_obj_set_style_radius(main_card, 15, 0);  // 圆角半径15px
+    lv_obj_set_style_shadow_width(main_card, 10, 0);  // 阴影扩散宽度10px
+    lv_obj_set_style_shadow_opa(main_card, LV_OPA_10, 0);  // 阴影透明度10%（轻微阴影）
+    lv_obj_set_style_shadow_ofs_y(main_card, 3, 0);  // 阴影向下偏移3px（营造立体感）
+    lv_obj_set_style_border_width(main_card, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(main_card, 0, 0);  // 无内边距（子元素手动定位）
+    lv_obj_set_scrollbar_mode(main_card, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_align(main_card, LV_ALIGN_TOP_MID, 0, 50);  // 顶部居中，向下偏移50px
+    
+    // ------ 2.1 时间和宜忌的水平容器（flex行布局）------
+    lv_obj_t* time_row = lv_obj_create(main_card);
+    lv_obj_set_size(time_row, 210, 45);  // 宽210px，高45px
+    lv_obj_set_style_bg_opa(time_row, LV_OPA_TRANSP, 0);  // 透明背景
+    lv_obj_set_style_border_width(time_row, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(time_row, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(time_row, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(time_row, LV_FLEX_FLOW_ROW);  // 设置为水平flex布局
+    lv_obj_set_flex_align(time_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 主轴左对齐，交叉轴居中
+    lv_obj_align(time_row, LV_ALIGN_TOP_LEFT, 10, 5);  // 左上角对齐，右移10px下移5px
+    
+    // 当前时间显示（大字号，格式：HH:MM）
+    clock_time_label_ = lv_label_create(time_row);
+    lv_obj_set_style_text_font(clock_time_label_, &time40, 0);  // 使用40号时间字体
+    lv_obj_set_style_text_color(clock_time_label_, lv_color_make(30, 30, 30), 0);  // 深色文字
+    lv_label_set_text(clock_time_label_, "00:00");  // 初始占位文本
+    lv_obj_set_width(clock_time_label_, 105);  // 固定宽度105px（容纳HH:MM）
+    lv_obj_set_style_text_align(clock_time_label_, LV_TEXT_ALIGN_CENTER, 0);  // 时间文字居中对齐
+    
+    // 黄历宜忌的垂直容器（flex列布局）
+    lv_obj_t* yi_ji_col = lv_obj_create(time_row);
+    lv_obj_set_size(yi_ji_col, 90, 45);  // 宽90px，高45px
+    lv_obj_set_style_bg_opa(yi_ji_col, LV_OPA_TRANSP, 0);  // 透明背景
+    lv_obj_set_style_border_width(yi_ji_col, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(yi_ji_col, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(yi_ji_col, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(yi_ji_col, LV_FLEX_FLOW_COLUMN);  // 设置为垂直flex布局
+    lv_obj_set_flex_align(yi_ji_col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);  // 主轴和交叉轴都靠上对齐
+    lv_obj_set_style_pad_row(yi_ji_col, -8, 0);  // 行间距为-5px（紧凑排列）
+
+    // "宜"标签（绿色，显示当日宜做之事）
+    yi_label_ = lv_label_create(yi_ji_col);
+    lv_obj_set_style_text_font(yi_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(yi_label_, lv_color_make(30, 120, 30), 0);  // 深绿色文字（寓意吉利）
+    lv_label_set_text(yi_label_, "宜：- -");  // 初始占位文本
+    lv_obj_set_width(yi_label_, 90);  // 宽度90px
+    lv_obj_set_style_text_align(yi_label_, LV_TEXT_ALIGN_LEFT, 0);  // 左对齐
+    
+    // "忌"标签（红色，显示当日忌做之事）
+    ji_label_ = lv_label_create(yi_ji_col);
+    lv_obj_set_style_text_font(ji_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(ji_label_, lv_color_make(180, 30, 30), 0);  // 深红色文字（寓意警示）
+    lv_label_set_text(ji_label_, "忌：- -");  // 初始占位文本
+    lv_obj_set_width(ji_label_, 90);  // 宽度90px
+    lv_obj_set_style_text_align(ji_label_, LV_TEXT_ALIGN_LEFT, 0);  // 左对齐
+    
+    // ------ 2.2 农历日期标签（位于时间行下方）------
+    lunar_date_label_ = lv_label_create(main_card);
+    lv_obj_set_style_text_font(lunar_date_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(lunar_date_label_, lv_color_make(100, 100, 100), 0);  // 中灰色文字
+    lv_obj_set_style_pad_all(lunar_date_label_, 0, 0);  // 设置内边距为0
+    lv_label_set_text(lunar_date_label_, "腊月廿三");  // 初始占位文本
+    lv_obj_set_width(lunar_date_label_, 200);  // 宽度200px
+    lv_label_set_long_mode(lunar_date_label_, LV_LABEL_LONG_SCROLL);  // 文字过长时滚动显示
+    lv_obj_set_style_text_align(lunar_date_label_, LV_TEXT_ALIGN_CENTER, 0);  // 居中对齐
+    lv_obj_align_to(lunar_date_label_, main_card, LV_ALIGN_BOTTOM_MID, 0, -5);  // 相对main_card底部居中，向上偏移5px
+    
+    // ========== 3. 天气信息卡片：图标 + 天气 + 温度 + 温度范围 ==========
+    // 创建天气卡片容器（白色背景，圆角，浅色边框）
+    lv_obj_t* weather_card = lv_obj_create(clock_screen_);
+    lv_obj_set_size(weather_card, 220, 65);  // 宽220px，高65px
+    lv_obj_set_style_bg_color(weather_card, lv_color_white(), 0);  // 白色背景
+    lv_obj_set_style_radius(weather_card, 12, 0);  // 圆角半径12px
+    lv_obj_set_style_border_width(weather_card, 1, 0);  // 边框宽度1px
+    lv_obj_set_style_border_color(weather_card, lv_color_make(230, 230, 230), 0);  // 浅灰色边框
+    lv_obj_set_style_pad_all(weather_card, 8, 0);  // 内边距8px
+    lv_obj_set_scrollbar_mode(weather_card, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_align(weather_card, LV_ALIGN_TOP_MID, 0, 155);  // 顶部居中，向下偏移155px
+    
+    // 设置flex布局：水平均匀分布所有天气元素
+    lv_obj_set_flex_flow(weather_card, LV_FLEX_FLOW_ROW);  // 水平flex布局
+    lv_obj_set_flex_align(weather_card, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 均匀分布，垂直居中
+    
+    // 天气图标（45x45px，根据天气类型动态切换）
+    weather_icon_ = lv_image_create(weather_card);
+    lv_image_set_src(weather_icon_, &cloud);  // 默认显示云朵图标
+    lv_obj_set_size(weather_icon_, 45, 45);  // 图标尺寸45x45px
+    
+    // 天气描述文字（如"多云"、"晴"、"雨"等）
+    weather_text_ = lv_label_create(weather_card);
+    lv_obj_set_style_text_font(weather_text_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_text_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_text_, "多云");  // 初始占位文本
+    
+    // 当前温度（大字号显示，带°符号）
+    weather_temp_ = lv_label_create(weather_card);
+    lv_obj_set_style_text_font(weather_temp_, &time30, 0);  // 使用30号时间字体（较大）
+    lv_obj_set_style_text_color(weather_temp_, lv_color_make(30, 30, 30), 0);  // 深色文字，突出显示
+    lv_label_set_text(weather_temp_, "22°");  // 初始占位文本
+    
+    // 温度范围（格式：最低温/最高温）
+    lv_obj_t* temp_range = lv_label_create(weather_card);
+    lv_obj_set_style_text_font(temp_range, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(temp_range, lv_color_make(120, 120, 120), 0);  // 浅灰色文字（次要信息）
+    lv_label_set_text(temp_range, "15°/25°");  // 初始占位文本
+    temp_range_label_ = temp_range;  // 保存成员变量引用
+    
+    // ========== 4. 详细天气参数区域：体感/湿度/风力/风向 ==========
+    // 创建底部详情容器（浅灰色背景，圆角）
+    lv_obj_t* detail_container = lv_obj_create(clock_screen_);
+    lv_obj_set_size(detail_container, 220, 70);  // 宽220px，高70px
+    lv_obj_set_style_bg_color(detail_container, lv_color_make(250, 250, 250), 0);  // 极浅灰色背景
+    lv_obj_set_style_radius(detail_container, 10, 0);  // 圆角半径10px
+    lv_obj_set_style_border_width(detail_container, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(detail_container, 10, 0);  // 内边距10px
+    lv_obj_set_scrollbar_mode(detail_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_align(detail_container, LV_ALIGN_BOTTOM_MID, 0, -30);  // 底部居中，向上偏移30px
+    
+    // 设置flex布局：水平均匀分布四个指标
+    lv_obj_set_flex_flow(detail_container, LV_FLEX_FLOW_ROW);  // 水平flex布局
+    lv_obj_set_flex_align(detail_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 均匀分布，垂直居中
+    
+    // ------ 4.1 体感温度模块 ------
+    lv_obj_t* feels_container = lv_obj_create(detail_container);
+    lv_obj_set_size(feels_container, 50, 50);  // 宽50px，高50px
+    lv_obj_set_style_bg_opa(feels_container, LV_OPA_0, 0);  // 透明背景
+    lv_obj_set_style_border_width(feels_container, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(feels_container, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(feels_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(feels_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
+    lv_obj_set_flex_align(feels_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
+    lv_obj_set_style_pad_row(feels_container, -1, 0);  // 行间距-1px（紧凑排列）
+    
+    // 体感温度标题
+    lv_obj_t* feels_title = lv_label_create(feels_container);
+    lv_obj_set_style_text_font(feels_title, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(feels_title, lv_color_make(100, 100, 100), 0);  // 中灰色文字
+    lv_label_set_text(feels_title, "体感");  // 固定标题文本
+    
+    // 体感温度数值
+    weather_feels_label_ = lv_label_create(feels_container);
+    lv_obj_set_style_text_font(weather_feels_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_feels_label_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_feels_label_, "26°");  // 初始占位文本
+    
+    // ------ 4.2 湿度模块 ------
+    lv_obj_t* humidity_container = lv_obj_create(detail_container);
+    lv_obj_set_size(humidity_container, 50, 50);  // 宽50px，高50px
+    lv_obj_set_style_bg_opa(humidity_container, LV_OPA_0, 0);  // 透明背景
+    lv_obj_set_style_border_width(humidity_container, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(humidity_container, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(humidity_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(humidity_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
+    lv_obj_set_flex_align(humidity_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
+    lv_obj_set_style_pad_row(humidity_container, -1, 0);  // 行间距-1px（紧凑排列）
+    
+    // 湿度标题
+    lv_obj_t* humidity_title = lv_label_create(humidity_container);
+    lv_obj_set_style_text_font(humidity_title, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(humidity_title, lv_color_make(100, 100, 100), 0);  // 中灰色文字
+    lv_label_set_text(humidity_title, "湿度");  // 固定标题文本
+    
+    // 湿度数值（百分比）
+    weather_humidity_label_ = lv_label_create(humidity_container);
+    lv_obj_set_style_text_font(weather_humidity_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_humidity_label_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_humidity_label_, "72%");  // 初始占位文本
+    
+    // ------ 4.3 风力模块 ------
+    lv_obj_t* wind_container = lv_obj_create(detail_container);
+    lv_obj_set_size(wind_container, 50, 50);  // 宽50px，高50px
+    lv_obj_set_style_bg_opa(wind_container, LV_OPA_0, 0);  // 透明背景
+    lv_obj_set_style_border_width(wind_container, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(wind_container, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(wind_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(wind_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
+    lv_obj_set_flex_align(wind_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
+    lv_obj_set_style_pad_row(wind_container, -1, 0);  // 行间距-1px（紧凑排列）
+    
+    // 风力标题
+    lv_obj_t* wind_title = lv_label_create(wind_container);
+    lv_obj_set_style_text_font(wind_title, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(wind_title, lv_color_make(100, 100, 100), 0);  // 中灰色文字
+    lv_label_set_text(wind_title, "风力");  // 固定标题文本
+    
+    // 风力等级（如"3级"）
+    weather_wind_label_ = lv_label_create(wind_container);
+    lv_obj_set_style_text_font(weather_wind_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_wind_label_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_wind_label_, "3级");  // 初始占位文本
+    
+    // ------ 4.4 风向模块 ------
+    lv_obj_t* vis_container = lv_obj_create(detail_container);
+    lv_obj_set_size(vis_container, 50, 50);  // 宽50px，高50px
+    lv_obj_set_style_bg_opa(vis_container, LV_OPA_0, 0);  // 透明背景
+    lv_obj_set_style_border_width(vis_container, 0, 0);  // 无边框
+    lv_obj_set_style_pad_all(vis_container, 0, 0);  // 无内边距
+    lv_obj_set_scrollbar_mode(vis_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
+    lv_obj_set_flex_flow(vis_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
+    lv_obj_set_flex_align(vis_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
+    lv_obj_set_style_pad_row(vis_container, -1, 0);  // 行间距-1px（紧凑排列）
+    
+    // 风向标题
+    lv_obj_t* vis_title = lv_label_create(vis_container);
+    lv_obj_set_style_text_font(vis_title, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(vis_title, lv_color_make(100, 100, 100), 0);  // 中灰色文字
+    lv_label_set_text(vis_title, "风向");  // 固定标题文本
+    
+    // 风向文字（如"东风"、"西北风"等）
+    weather_vis_label_ = lv_label_create(vis_container);
+    lv_obj_set_style_text_font(weather_vis_label_, fonts_.text_font, 0);  // 使用标准文本字体
+    lv_obj_set_style_text_color(weather_vis_label_, lv_color_make(60, 60, 60), 0);  // 深灰色文字
+    lv_label_set_text(weather_vis_label_, "东风");  // 初始占位文本
+    
+    ESP_LOGI(TAG, "Weather clock UI setup completed");  // 记录UI初始化完成日志
+    
+    // ========== 启动农历数据获取后台任务 ==========
+    // 使用静态变量确保农历任务只创建一次（避免重复创建）
+    static bool lunar_task_created = false;
+    if (!lunar_task_created) {
+        // 创建FreeRTOS任务：LunarFetchTask
+        // 参数：任务函数、任务名称、栈大小4KB、任务参数、优先级3、任务句柄
+        BaseType_t ret = xTaskCreate(LunarFetchTask, "LunarFetchTask", 4096, nullptr, 3, nullptr);
+        if (ret == pdPASS) {
+            ESP_LOGI(TAG, "Lunar fetch task created successfully (stack: 4KB)");
+            lunar_task_created = true;  // 标记任务已创建
+        } else {
+            ESP_LOGE(TAG, "Failed to create lunar fetch task!");
+        }
+    }
+}
+
+void LcdDisplay::OnClockUpdate(lv_timer_t* timer) {
+    LcdDisplay* display = static_cast<LcdDisplay*>(lv_timer_get_user_data(timer));
+    if (display) {
+        display->UpdateClockDisplay();
+    }
+}
+
+void LcdDisplay::OnWeatherUpdate(void* param) {
+    LcdDisplay* display = static_cast<LcdDisplay*>(param);
+    if (display) {
+        display->UpdateWeatherData();
+        display->UpdateWeatherDisplay();
+    }
+    vTaskDelete(NULL);
+}
+
+void LcdDisplay::SetClockMode(bool enabled) {
+    if (enabled == clock_mode_enabled_) {
+        return;
+    }
+    
+    clock_mode_enabled_ = enabled;
+    
+    if (enabled) {
+        {
+            DisplayLockGuard lock(this);
+            
+            // 创建时钟UI（如果还未创建）
+            SetupWeatherClock();
+            
+            // 切换到时钟屏幕
+            if (clock_screen_ != nullptr) {
+                lv_screen_load(clock_screen_);
+            }
+            
+            // 创建时钟更新定时器（1秒更新一次）
+            if (clock_lvgl_timer_ == nullptr) {
+                clock_lvgl_timer_ = lv_timer_create(OnClockUpdate, 1000, this);
+            }
+        }
+        
+        // 立即更新显示（会在UpdateClockDisplay中触发天气更新）
+        UpdateClockDisplay();
+        
+        ESP_LOGI(TAG, "Clock mode enabled");
+    } else {
+        DisplayLockGuard lock(this);
+        
+        // 删除时钟更新定时器
+        if (clock_lvgl_timer_ != nullptr) {
+            lv_timer_del(clock_lvgl_timer_);
+            clock_lvgl_timer_ = nullptr;
+        }
+        
+        // 切换回主屏幕
+        if (main_screen_ != nullptr) {
+            lv_screen_load(main_screen_);
+        }
+        
+        ESP_LOGI(TAG, "Clock mode disabled");
+    }
+}
+
+void LcdDisplay::UpdateClockDisplay() {
+    if (!clock_mode_enabled_ || clock_screen_ == nullptr) {
+        return;
+    }
+    
+    DisplayLockGuard lock(this);
+    
+    // 1. 更新时间显示
+    time_t now = time(NULL);
+    struct tm* timeinfo = localtime(&now);
+    char time_str[16];
+    strftime(time_str, sizeof(time_str), "%H:%M", timeinfo);
+    if (clock_time_label_) {
+        lv_label_set_text(clock_time_label_, time_str);
+    }
+    
+    // 2. 更新日期和星期
+    if (clock_date_label_ != nullptr) {
+        char date_str[64];
+        const char* weekdays[] = {"日", "一", "二", "三", "四", "五", "六"};
+        strftime(date_str, sizeof(date_str), "%m月%d日", timeinfo);
+        std::string full_date = std::string(date_str) + " 周" + weekdays[timeinfo->tm_wday];
+        lv_label_set_text(clock_date_label_, full_date.c_str());
+    }
+    
+    // 3. 获取并显示农历信息和干支年
+    if (lunar_date_label_ != nullptr) {
+        std::lock_guard<std::mutex> lock_lunar(g_lunar_mutex);
+        std::string lunar_display;
+        if (!g_lunar_cache.ganzhi_year.empty()) {
+            lunar_display = g_lunar_cache.ganzhi_year + "年 " + g_lunar_cache.lunar_str;
+        } else if (!g_lunar_cache.lunar_str.empty()) {
+            lunar_display = g_lunar_cache.lunar_str;
+        } else {
+            lunar_display = "加载中...";
+        }
+        lv_label_set_text(lunar_date_label_, lunar_display.c_str());
+    }
+    
+    // 4. 显示宜/忌
+    if (yi_label_ && ji_label_) {
+        std::string yi_str = "宜：- -";
+        std::string ji_str = "忌：- -";
+        {
+            std::lock_guard<std::mutex> lock_lunar(g_lunar_mutex);
+            if (!g_lunar_yi.empty()) {
+                yi_str = "宜：" + g_lunar_yi[0];
+            }
+            if (!g_lunar_ji.empty()) {
+                ji_str = "忌：" + g_lunar_ji[0];
+            }
+        }
+        lv_label_set_text(yi_label_, yi_str.c_str());
+        lv_label_set_text(ji_label_, ji_str.c_str());
+    }
+    
+    // 5. 每小时触发天气更新（通过独立任务）
+    static time_t last_weather_update = 0;
+    static bool weather_task_created = false;
+    
+    // 第一次调用（立即触发）或每小时更新一次
+    if (!weather_task_created || (now - last_weather_update) >= (60 * 60)) {
+        BaseType_t ret = xTaskCreate(OnWeatherUpdate, "WeatherUpdate", 6144, this, 2, NULL);
+        if (ret == pdPASS) {
+            if (!weather_task_created) {
+                ESP_LOGI(TAG, "Initial weather update task created (stack: 6KB)");
+                weather_task_created = true;
+            } else {
+                ESP_LOGI(TAG, "Hourly weather update task created (stack: 6KB)");
+            }
+            last_weather_update = now;
+        } else {
+            if (!weather_task_created) {
+                ESP_LOGE(TAG, "Failed to create initial weather update task");
+            } else {
+                ESP_LOGE(TAG, "Failed to create hourly weather update task");
+            }
+        }
+    }
+}
+
+void LcdDisplay::UpdateWeatherData() {
+    ESP_LOGI(TAG, "Updating weather data");
+    
+    // 第一步：通过IP定位获取城市编码
+    auto http = Board::GetInstance().CreateHttp();
+    std::string adcode = "";
+    
+    if (http && http->Open("GET", "https://restapi.amap.com/v3/ip?key=eac978c2fa1693791f287a32528e6d7e")) {
+        std::string response = http->GetBody();
+        http->Close();
+        
+        ESP_LOGI(TAG, "IP location response: %s", response.c_str());
+        
+        cJSON *root = cJSON_Parse(response.c_str());
+        if (root) {
+            cJSON *status = cJSON_GetObjectItem(root, "status");
+            if (status && status->valuestring && strcmp(status->valuestring, "1") != 0) {
+                ESP_LOGE(TAG, "IP location API error");
+                cJSON *info = cJSON_GetObjectItem(root, "info");
+                if (info && info->valuestring) {
+                    ESP_LOGE(TAG, "Error info: %s", info->valuestring);
+                }
+            } else {
+                cJSON *adcode_json = cJSON_GetObjectItem(root, "adcode");
+                if (adcode_json && adcode_json->valuestring) {
+                    adcode = adcode_json->valuestring;
+                    ESP_LOGI(TAG, "Got adcode: %s", adcode.c_str());
+                }
+            }
+            cJSON_Delete(root);
+        } else {
+            ESP_LOGE(TAG, "Failed to parse IP location JSON");
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to open IP location API");
+    }
+    
+    if (http) {
+        delete http;
+        http = nullptr;
+    }
+    
+    // 如果IP定位失败，使用默认值
+    if (adcode.empty()) {
+        adcode = "110105";
+        ESP_LOGW(TAG, "IP location failed, using default adcode: %s", adcode.c_str());
+    }
+    
+    // 第二步：使用城市编码获取天气预报
+    http = Board::GetInstance().CreateHttp();
+    std::string weather_url = "https://restapi.amap.com/v3/weather/weatherInfo?key=eac978c2fa1693791f287a32528e6d7e&city=" 
+                             + adcode + "&extensions=all";
+    
+    ESP_LOGI(TAG, "Fetching weather forecast from: %s", weather_url.c_str());
+    
+    if (http && http->Open("GET", weather_url)) {
+        std::string response = http->GetBody();
+        http->Close();
+        
+        ESP_LOGI(TAG, "Weather forecast response: %s", response.c_str());
+        
+        cJSON *root = cJSON_Parse(response.c_str());
+        if (root) {
+            // 检查状态
+            cJSON *status = cJSON_GetObjectItem(root, "status");
+            if (status && status->valuestring && strcmp(status->valuestring, "1") != 0) {
+                ESP_LOGE(TAG, "Weather API error");
+                cJSON *info = cJSON_GetObjectItem(root, "info");
+                if (info && info->valuestring) {
+                    ESP_LOGE(TAG, "Error info: %s", info->valuestring);
+                }
+                cJSON_Delete(root);
+                if (http) delete http;
+                return;
+            }
+            cJSON *forecasts = cJSON_GetObjectItem(root, "forecasts");
+            if (forecasts && cJSON_IsArray(forecasts) && cJSON_GetArraySize(forecasts) > 0) {
+                cJSON *forecast = cJSON_GetArrayItem(forecasts, 0);
+                
+                // 获取城市名称
+                cJSON *city = cJSON_GetObjectItem(forecast, "city");
+                if (city && city->valuestring) {
+                    weather_data_.city = city->valuestring;
+                    ESP_LOGI(TAG, "City: %s", weather_data_.city.c_str());
+                }
+                
+                // 获取今日天气
+                cJSON *casts = cJSON_GetObjectItem(forecast, "casts");
+                if (casts && cJSON_IsArray(casts) && cJSON_GetArraySize(casts) > 0) {
+                    cJSON *today = cJSON_GetArrayItem(casts, 0);
+                    
+                    cJSON *dayweather = cJSON_GetObjectItem(today, "dayweather");
+                    cJSON *daytemp = cJSON_GetObjectItem(today, "daytemp");
+                    cJSON *nighttemp = cJSON_GetObjectItem(today, "nighttemp");
+                    cJSON *daywind = cJSON_GetObjectItem(today, "daywind");
+                    cJSON *daypower = cJSON_GetObjectItem(today, "daypower");
+                    
+                    if (dayweather && dayweather->valuestring) {
+                        weather_data_.text = dayweather->valuestring;
+                    }
+                    if (daytemp && daytemp->valuestring) {
+                        weather_data_.highTemp = daytemp->valuestring;
+                    }
+                    if (nighttemp && nighttemp->valuestring) {
+                        weather_data_.lowTemp = nighttemp->valuestring;
+                    }
+                    if (daywind && daywind->valuestring) {
+                        weather_data_.windDir = daywind->valuestring;
+                    }
+                    if (daypower && daypower->valuestring) {
+                        weather_data_.windScale = daypower->valuestring;
+                    }
+                }
+            }
+            cJSON_Delete(root);
+        }
+    }
+    
+    if (http) {
+        delete http;
+        http = nullptr;
+    }
+    
+    // 第三步：获取实况天气数据
+    http = Board::GetInstance().CreateHttp();
+    std::string live_weather_url = "https://restapi.amap.com/v3/weather/weatherInfo?key=eac978c2fa1693791f287a32528e6d7e&city=" 
+                                   + adcode + "&extensions=base";
+    
+    ESP_LOGI(TAG, "Fetching live weather from: %s", live_weather_url.c_str());
+    
+    if (http && http->Open("GET", live_weather_url)) {
+        std::string response = http->GetBody();
+        http->Close();
+        
+        ESP_LOGI(TAG, "Live weather response: %s", response.c_str());
+        
+        cJSON *root = cJSON_Parse(response.c_str());
+        if (root) {
+            // 检查状态
+            cJSON *status = cJSON_GetObjectItem(root, "status");
+            if (status && status->valuestring && strcmp(status->valuestring, "1") != 0) {
+                ESP_LOGE(TAG, "Live weather API error");
+                cJSON *info = cJSON_GetObjectItem(root, "info");
+                if (info && info->valuestring) {
+                    ESP_LOGE(TAG, "Error info: %s", info->valuestring);
+                }
+                cJSON_Delete(root);
+                if (http) delete http;
+                return;
+            }
+            cJSON *lives = cJSON_GetObjectItem(root, "lives");
+            if (lives && cJSON_IsArray(lives) && cJSON_GetArraySize(lives) > 0) {
+                cJSON *live = cJSON_GetArrayItem(lives, 0);
+                
+                cJSON *temperature = cJSON_GetObjectItem(live, "temperature");
+                cJSON *humidity = cJSON_GetObjectItem(live, "humidity");
+                cJSON *weather = cJSON_GetObjectItem(live, "weather");
+                
+                if (temperature && temperature->valuestring) {
+                    weather_data_.temp = temperature->valuestring;
+                    weather_data_.feelsLike = temperature->valuestring;
+                }
+                if (humidity && humidity->valuestring) {
+                    weather_data_.humidity = humidity->valuestring;
+                }
+                if (weather && weather->valuestring) {
+                    std::string weather_str = weather->valuestring;
+                    
+                    // 根据天气描述映射图标代码
+                    if (weather_str.find("晴") != std::string::npos) {
+                        weather_data_.icon = "100";
+                    } else if (weather_str.find("多云") != std::string::npos) {
+                        weather_data_.icon = "101";
+                    } else if (weather_str.find("阴") != std::string::npos) {
+                        weather_data_.icon = "104";
+                    } else if (weather_str.find("雨") != std::string::npos) {
+                        weather_data_.icon = "305";
+                    } else if (weather_str.find("雪") != std::string::npos) {
+                        weather_data_.icon = "400";
+                    } else if (weather_str.find("雾") != std::string::npos || weather_str.find("霾") != std::string::npos) {
+                        weather_data_.icon = "501";
+                    } else {
+                        weather_data_.icon = "999";
+                    }
+                }
+            }
+            cJSON_Delete(root);
+        }
+    }
+    
+    if (http) {
+        delete http;
+    }
+    
+    weather_data_.dataValid = true;
+    ESP_LOGI(TAG, "Weather data updated: %s, %s°, %s/%s°", 
+             weather_data_.city.c_str(), weather_data_.temp.c_str(),
+             weather_data_.lowTemp.c_str(), weather_data_.highTemp.c_str());
+}
+
+void LcdDisplay::UpdateWeatherDisplay() {
+    if (!weather_data_.dataValid) {
+        ESP_LOGW(TAG, "Weather data not valid, skipping display update");
+        return;
+    }
+    
+    if (!clock_mode_enabled_ || clock_screen_ == nullptr) {
+        ESP_LOGW(TAG, "Clock mode not enabled or screen not ready, skipping weather display update");
+        return;
+    }
+    
+    DisplayLockGuard lock(this);
+    
+    ESP_LOGI(TAG, "Updating weather UI elements...");
+    
+    // 更新城市名称
+    if (weather_city_) {
+        lv_label_set_text(weather_city_, weather_data_.city.c_str());
+        ESP_LOGI(TAG, "City updated: %s", weather_data_.city.c_str());
+    } else {
+        ESP_LOGW(TAG, "weather_city_ is null!");
+    }
+    
+    // 更新天气描述
+    if (weather_text_) {
+        lv_label_set_text(weather_text_, weather_data_.text.c_str());
+        ESP_LOGI(TAG, "Weather text updated: %s", weather_data_.text.c_str());
+    } else {
+        ESP_LOGW(TAG, "weather_text_ is null!");
+    }
+    
+    // 更新当前温度
+    if (weather_temp_) {
+        std::string current_temp = weather_data_.temp + "°";
+        lv_label_set_text(weather_temp_, current_temp.c_str());
+        ESP_LOGI(TAG, "Temperature updated: %s", current_temp.c_str());
+    } else {
+        ESP_LOGW(TAG, "weather_temp_ is null!");
+    }
+    
+    // 更新温度范围
+    if (temp_range_label_) {
+        std::string temp_range = weather_data_.lowTemp + "°/" + weather_data_.highTemp + "°";
+        lv_label_set_text(temp_range_label_, temp_range.c_str());
+    }
+    
+    // 更新天气图标
+    if (weather_icon_) {
+        const lv_image_dsc_t* icon = getWeatherIcon(weather_data_.icon);
+        lv_image_set_src(weather_icon_, icon);
+        ESP_LOGI(TAG, "Weather icon updated: %s", weather_data_.icon.c_str());
+    } else {
+        ESP_LOGW(TAG, "weather_icon_ is null!");
+    }
+    
+    // 更新详细参数
+    if (weather_feels_label_) {
+        lv_label_set_text(weather_feels_label_, (weather_data_.feelsLike + "°").c_str());
+    }
+    if (weather_humidity_label_) {
+        lv_label_set_text(weather_humidity_label_, (weather_data_.humidity + "%").c_str());
+    }
+    if (weather_wind_label_) {
+        lv_label_set_text(weather_wind_label_, (weather_data_.windScale + "级").c_str());
+    }
+    if (weather_vis_label_) {
+        lv_label_set_text(weather_vis_label_, weather_data_.windDir.c_str());
+    }
+    
+    ESP_LOGI(TAG, "Weather display updated");
 }

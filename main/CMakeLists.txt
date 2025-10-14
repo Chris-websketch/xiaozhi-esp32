@@ -165,10 +165,11 @@ elseif(CONFIG_BOARD_TYPE_ESP32_CGC)
     set(BOARD_TYPE "esp32-cgc")
 elseif(CONFIG_BOARD_TYPE_ABROBOT_1_28TFT_WIFI)
     set(BOARD_TYPE "moon")
-    #如果命令行中未提供，则为该板设置默认的 BOARD_NAME。
     if(NOT BOARD_NAME)
         set(BOARD_NAME "xiaoqiao-3.0")
     endif()
+elseif(CONFIG_BOARD_TYPE_JIUCHUAN_S3)
+    set(BOARD_TYPE "jiuchuan-s3")
 endif()
 
 file(GLOB BOARD_SOURCES
@@ -189,6 +190,18 @@ file(GLOB BOARD_SOURCES_GIF
 ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/gif/*.c
 )
 list(APPEND SOURCES ${BOARD_SOURCES_GIF})
+endif()
+
+if(CONFIG_BOARD_TYPE_JIUCHUAN_S3)
+# 添加九川板子的天气图标和时钟字体
+file(GLOB JIUCHUAN_WEATHER_ICONS
+${CMAKE_CURRENT_SOURCE_DIR}/boards/jiuchuan-s3/Weather\ Icons/*.c
+)
+file(GLOB JIUCHUAN_TIME_FONTS
+${CMAKE_CURRENT_SOURCE_DIR}/boards/jiuchuan-s3/time\ Font/*.c
+)
+list(APPEND SOURCES ${JIUCHUAN_WEATHER_ICONS})
+list(APPEND SOURCES ${JIUCHUAN_TIME_FONTS})
 endif()
 
 if(CONFIG_CONNECTION_TYPE_MQTT_UDP)

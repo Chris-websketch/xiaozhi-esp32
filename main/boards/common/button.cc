@@ -1,6 +1,7 @@
 #include "button.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 
 static const char* TAG = "Button";
 #if CONFIG_SOC_ADC_SUPPORTED
@@ -58,17 +59,47 @@ void Button::OnPressDown(std::function<void()> callback) {
     }, this);
 }
 
-void Button::OnPressUp(std::function<void()> callback) {
-    if (button_handle_ == nullptr) {
+void Button::RegisterPressUpHandler() {
+    if (press_up_registered_ || button_handle_ == nullptr) {
         return;
     }
-    on_press_up_ = callback;
+    
     iot_button_register_cb(button_handle_, BUTTON_PRESS_UP, [](void* handle, void* usr_data) {
         Button* button = static_cast<Button*>(usr_data);
+        
+        // 处理三击检测
+        if (button->on_triple_click_) {
+            int64_t current_time = esp_timer_get_time() / 1000; // 转换为毫秒
+            
+            // 检查是否在三击时间窗口内
+            if (current_time - button->last_click_time_ < TRIPLE_CLICK_INTERVAL_MS) {
+                button->click_count_++;
+            } else {
+                button->click_count_ = 1;
+            }
+            
+            button->last_click_time_ = current_time;
+            
+            // 如果达到3次点击，触发三击回调
+            if (button->click_count_ == 3) {
+                button->click_count_ = 0;
+                button->on_triple_click_();
+                return; // 三击时不触发普通的press_up
+            }
+        }
+        
+        // 触发普通的press_up回调
         if (button->on_press_up_) {
             button->on_press_up_();
         }
     }, this);
+    
+    press_up_registered_ = true;
+}
+
+void Button::OnPressUp(std::function<void()> callback) {
+    on_press_up_ = callback;
+    RegisterPressUpHandler();
 }
 
 void Button::OnLongPress(std::function<void()> callback) {
@@ -108,4 +139,9 @@ void Button::OnDoubleClick(std::function<void()> callback) {
             button->on_double_click_();
         }
     }, this);
+}
+
+void Button::OnTripleClick(std::function<void()> callback) {
+    on_triple_click_ = callback;
+    RegisterPressUpHandler();
 }

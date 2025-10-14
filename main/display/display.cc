@@ -191,7 +191,13 @@ void Display::Update() {
             };
             icon = levels[battery_level / 20];
         }
-        // 电池图标现在通过时钟页面定时器更新，这里只处理低电量弹窗
+        
+        // 更新电池图标
+        if (battery_label_ != nullptr && icon != nullptr && battery_icon_ != icon) {
+            DisplayLockGuard lock(this);
+            battery_icon_ = icon;
+            lv_label_set_text(battery_label_, battery_icon_);
+        }
 
         if (low_battery_popup_ != nullptr) {
             if (strcmp(icon, FONT_AWESOME_BATTERY_EMPTY) == 0 && discharging) {

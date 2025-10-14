@@ -41,6 +41,61 @@ public:
 
     // Add theme switching function
     virtual void SetTheme(const std::string& theme_name) override;
+    
+    // 天气时钟相关方法
+    virtual void SetClockMode(bool enabled) override;
+    virtual void UpdateClockDisplay() override;
+    virtual void UpdateWeatherData() override;
+    virtual void UpdateWeatherDisplay() override;
+    
+protected:
+    // 天气时钟UI设置和回调
+    void SetupWeatherClock();
+    static void OnClockUpdate(lv_timer_t* timer);
+    static void OnWeatherUpdate(void* param);
+    
+    // 天气时钟相关成员变量
+    bool clock_mode_enabled_ = false;
+    lv_obj_t* clock_screen_ = nullptr;
+    lv_obj_t* main_screen_ = nullptr;
+    
+    // 时钟UI元素
+    lv_obj_t* clock_time_label_ = nullptr;
+    lv_obj_t* clock_date_label_ = nullptr;
+    lv_obj_t* lunar_date_label_ = nullptr;
+    lv_obj_t* yi_label_ = nullptr;
+    lv_obj_t* ji_label_ = nullptr;
+    
+    // 天气UI元素
+    lv_obj_t* weather_city_ = nullptr;
+    lv_obj_t* weather_icon_ = nullptr;
+    lv_obj_t* weather_text_ = nullptr;
+    lv_obj_t* weather_temp_ = nullptr;
+    lv_obj_t* temp_range_label_ = nullptr;
+    lv_obj_t* weather_feels_label_ = nullptr;
+    lv_obj_t* weather_humidity_label_ = nullptr;
+    lv_obj_t* weather_wind_label_ = nullptr;
+    lv_obj_t* weather_vis_label_ = nullptr;
+    
+    // 定时器
+    lv_timer_t* clock_lvgl_timer_ = nullptr;
+    
+    // 天气数据结构
+    struct WeatherData {
+        bool dataValid = false;
+        std::string city;
+        std::string text;
+        std::string temp;
+        std::string feelsLike;
+        std::string windDir;
+        std::string windScale;
+        std::string humidity;
+        std::string vis;
+        std::string icon;
+        std::string lowTemp;
+        std::string highTemp;
+        std::string updateTime;
+    } weather_data_;
 };
 
 // RGB LCD显示器
