@@ -14,8 +14,8 @@ std::optional<Alarm> AlarmManager::GetProximateAlarm(time_t now){
 std::optional<Alarm> AlarmManager::GetProximateAlarmUnlocked(time_t now){
     std::optional<Alarm> current_alarm;
     for(const auto& alarm : alarms_){
-        // 只考虑启用的且时间在未来的闹钟
-        if(alarm.enabled && alarm.time > now && 
+        // 只考虑时间在未来的闹钟
+        if(alarm.time > now && 
            (!current_alarm.has_value() || alarm.time < current_alarm->time)){
             current_alarm = alarm; // 获取当前时间以后第一个发生的时钟句柄
         }
@@ -51,15 +51,24 @@ AlarmManager::AlarmManager() : settings_("alarm_clock", true) {
             alarm.name = alarm_name;
             alarm.time = settings_.GetInt("alarm_time_" + std::to_string(i));
             // 加载重复类型字段（默认为ONCE以兼容旧数据）
-            alarm.repeat_type = static_cast<RepeatType>(settings_.GetInt("alarm_type_" + std::to_string(i), 0));
-            alarm.repeat_days = static_cast<uint8_t>(settings_.GetInt("alarm_days_" + std::to_string(i), 0));
-            alarm.enabled = settings_.GetInt("alarm_en_" + std::to_string(i), 1) != 0; // 默认启用
+            int type_val = settings_.GetInt("alarm_type_" + std::to_string(i), 0);
+            // 兼容旧的WORKDAYS(3)/WEEKENDS(4)，转换为WEEKLY(2)
+            if(type_val == 3) { // WORKDAYS -> WEEKLY
+                alarm.repeat_type = RepeatType::WEEKLY;
+                alarm.repeat_days = 0b00111110; // 周一到周五
+            } else if(type_val == 4) { // WEEKENDS -> WEEKLY
+                alarm.repeat_type = RepeatType::WEEKLY;
+                alarm.repeat_days = 0b01000001; // 周六周日
+            } else {
+                alarm.repeat_type = static_cast<RepeatType>(type_val);
+                alarm.repeat_days = static_cast<uint8_t>(settings_.GetInt("alarm_days_" + std::to_string(i), 0));
+            }
             
             alarms_.push_back(alarm);
             name_to_slot_[alarm_name] = i; // 构建映射
-            ESP_LOGI(TAG, "Alarm %s loaded: time=%lld, type=%d, days=0x%02X, enabled=%d (slot %d)", 
+            ESP_LOGI(TAG, "Alarm %s loaded: time=%lld, type=%d, days=0x%02X (slot %d)", 
                      alarm.name.c_str(), (long long)alarm.time, (int)alarm.repeat_type, 
-                     alarm.repeat_days, alarm.enabled, i);
+                     alarm.repeat_days, i);
         }
     }
 
@@ -81,7 +90,7 @@ AlarmManager::AlarmManager() : settings_("alarm_clock", true) {
 
     // 修复过期的重复闹钟（设备关机期间错过的闹钟）
     for(auto& alarm : alarms_) {
-        if(alarm.repeat_type != RepeatType::ONCE && alarm.time <= now && alarm.enabled) {
+        if(alarm.repeat_type != RepeatType::ONCE && alarm.time <= now) {
             time_t new_time = CalculateNextTriggerTime(alarm, now);
             ESP_LOGW(TAG, "Missed repeat alarm '%s' (was at %lld), rescheduling to %lld", 
                      alarm.name.c_str(), (long long)alarm.time, (long long)new_time);
@@ -125,23 +134,54 @@ AlarmManager::~AlarmManager(){
 }
 
 
-void AlarmManager::SetAlarm(int seconds_from_now, std::string alarm_name, 
-                            RepeatType repeat_type, uint8_t repeat_days){
+void AlarmManager::SetAlarm(int seconds_from_now, int hour, int minute,
+                            std::string alarm_name, RepeatType repeat_type, 
+                            uint8_t repeat_days){
     std::lock_guard<std::mutex> lock(mutex_);
     
     // 参数验证
-    if(seconds_from_now <= 0){
-        ESP_LOGE(TAG, "Invalid alarm time: %d", seconds_from_now);
-        return;
-    }
-    
     if(alarm_name.empty() || alarm_name.length() > 64){
         ESP_LOGE(TAG, "Invalid alarm name");
         return;
     }
 
     time_t now = time(NULL);
-    time_t new_time = now + seconds_from_now;
+    time_t new_time;
+    
+    // 根据repeat_type计算触发时间
+    if(repeat_type == RepeatType::ONCE){
+        // 一次性闹钟：使用seconds_from_now
+        if(seconds_from_now <= 0){
+            ESP_LOGE(TAG, "ONCE alarm requires seconds_from_now > 0");
+            return;
+        }
+        new_time = now + seconds_from_now;
+    } else {
+        // DAILY或WEEKLY：使用hour/minute
+        if(hour < 0 || hour > 23 || minute < 0 || minute > 59){
+            ESP_LOGE(TAG, "Invalid time: %d:%d", hour, minute);
+            return;
+        }
+        
+        if(repeat_type == RepeatType::DAILY){
+            // 每日闹钟
+            new_time = GetTodayTime(hour, minute);
+            if(new_time <= now){
+                new_time += 86400; // 加24小时
+            }
+            repeat_days = 0x7F; // 每天
+        } else if(repeat_type == RepeatType::WEEKLY){
+            // 每周闹钟
+            if(repeat_days == 0 || repeat_days > 0x7F){
+                ESP_LOGE(TAG, "Invalid weekdays mask: 0x%02X", repeat_days);
+                return;
+            }
+            new_time = GetNextWeekdayTime(hour, minute, repeat_days, now);
+        } else {
+            ESP_LOGE(TAG, "Unknown repeat_type: %d", (int)repeat_type);
+            return;
+        }
+    }
     
     // 检查是否已存在同名闹钟
     bool found_existing = false;
@@ -153,7 +193,6 @@ void AlarmManager::SetAlarm(int seconds_from_now, std::string alarm_name,
             alarm.time = new_time;
             alarm.repeat_type = repeat_type;
             alarm.repeat_days = repeat_days;
-            alarm.enabled = true;
             
             // 更新存储（使用映射快速定位）
             auto it = name_to_slot_.find(alarm_name);
@@ -185,7 +224,6 @@ void AlarmManager::SetAlarm(int seconds_from_now, std::string alarm_name,
         alarm.time = new_time;
         alarm.repeat_type = repeat_type;
         alarm.repeat_days = repeat_days;
-        alarm.enabled = true;
         alarms_.push_back(alarm);
         
         // 保存到存储并更新映射
@@ -254,7 +292,7 @@ void AlarmManager::OnAlarm(){
     std::string triggered_name;
     
     for(auto& alarm : alarms_){
-        if(alarm.enabled && alarm.time <= now){
+        if(alarm.time <= now){
             triggered_name = alarm.name;
             
             // 显示闹钟信息
@@ -327,7 +365,6 @@ void AlarmManager::SaveAlarmToSettings(const Alarm& alarm, int slot) {
     settings_.SetInt("alarm_time_" + std::to_string(slot), alarm.time);
     settings_.SetInt("alarm_type_" + std::to_string(slot), static_cast<int>(alarm.repeat_type));
     settings_.SetInt("alarm_days_" + std::to_string(slot), alarm.repeat_days);
-    settings_.SetInt("alarm_en_" + std::to_string(slot), alarm.enabled ? 1 : 0);
     name_to_slot_[alarm.name] = slot;
     ESP_LOGI(TAG, "Saved alarm '%s' to slot %d", alarm.name.c_str(), slot);
 }
@@ -367,178 +404,6 @@ void AlarmManager::RestartTimerForNextAlarm(time_t now) {
     } else {
         ESP_LOGI(TAG, "No more alarms scheduled");
     }
-}
-
-// ========== 新增重复闹钟API实现 ==========
-
-void AlarmManager::SetDailyAlarm(const std::string& name, int hour, int minute) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if(hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        ESP_LOGE(TAG, "Invalid time: %d:%d", hour, minute);
-        return;
-    }
-    
-    time_t alarm_time = GetTodayTime(hour, minute);
-    time_t now = time(NULL);
-    
-    // 如果今天的时间已过，设置为明天
-    if(alarm_time <= now) {
-        alarm_time += 86400; // 加24小时
-    }
-    
-    // 检查是否已存在同名闹钟
-    bool found = false;
-    for(auto& alarm : alarms_) {
-        if(alarm.name == name) {
-            alarm.time = alarm_time;
-            alarm.repeat_type = RepeatType::DAILY;
-            alarm.repeat_days = 0x7F; // 每天：bit0-6都设置
-            alarm.enabled = true;
-            
-            auto it = name_to_slot_.find(name);
-            if(it != name_to_slot_.end()) {
-                SaveAlarmToSettings(alarm, it->second);
-            }
-            found = true;
-            ESP_LOGI(TAG, "Updated daily alarm '%s' at %d:%02d", name.c_str(), hour, minute);
-            break;
-        }
-    }
-    
-    if(!found) {
-        if(alarms_.size() >= MAX_ALARMS) {
-            ESP_LOGE(TAG, "Too many alarms");
-            return;
-        }
-        
-        int slot = FindFreeSlot();
-        if(slot < 0) {
-            ESP_LOGE(TAG, "No free slot");
-            return;
-        }
-        
-        Alarm alarm;
-        alarm.name = name;
-        alarm.time = alarm_time;
-        alarm.repeat_type = RepeatType::DAILY;
-        alarm.repeat_days = 0x7F;
-        alarm.enabled = true;
-        alarms_.push_back(alarm);
-        
-        SaveAlarmToSettings(alarm, slot);
-        ESP_LOGI(TAG, "Created daily alarm '%s' at %d:%02d", name.c_str(), hour, minute);
-    }
-    
-    RestartTimerForNextAlarm(now);
-}
-
-void AlarmManager::SetWeeklyAlarm(const std::string& name, int hour, int minute, uint8_t weekdays) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if(hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        ESP_LOGE(TAG, "Invalid time: %d:%d", hour, minute);
-        return;
-    }
-    
-    if(weekdays == 0 || weekdays > 0x7F) {
-        ESP_LOGE(TAG, "Invalid weekdays mask: 0x%02X", weekdays);
-        return;
-    }
-    
-    time_t now = time(NULL);
-    time_t alarm_time = GetNextWeekdayTime(hour, minute, weekdays, now);
-    
-    // 检查是否已存在同名闹钟
-    bool found = false;
-    for(auto& alarm : alarms_) {
-        if(alarm.name == name) {
-            alarm.time = alarm_time;
-            alarm.repeat_type = RepeatType::WEEKLY;
-            alarm.repeat_days = weekdays;
-            alarm.enabled = true;
-            
-            auto it = name_to_slot_.find(name);
-            if(it != name_to_slot_.end()) {
-                SaveAlarmToSettings(alarm, it->second);
-            }
-            found = true;
-            ESP_LOGI(TAG, "Updated weekly alarm '%s' at %d:%02d, days=0x%02X", 
-                     name.c_str(), hour, minute, weekdays);
-            break;
-        }
-    }
-    
-    if(!found) {
-        if(alarms_.size() >= MAX_ALARMS) {
-            ESP_LOGE(TAG, "Too many alarms");
-            return;
-        }
-        
-        int slot = FindFreeSlot();
-        if(slot < 0) {
-            ESP_LOGE(TAG, "No free slot");
-            return;
-        }
-        
-        Alarm alarm;
-        alarm.name = name;
-        alarm.time = alarm_time;
-        alarm.repeat_type = RepeatType::WEEKLY;
-        alarm.repeat_days = weekdays;
-        alarm.enabled = true;
-        alarms_.push_back(alarm);
-        
-        SaveAlarmToSettings(alarm, slot);
-        ESP_LOGI(TAG, "Created weekly alarm '%s' at %d:%02d, days=0x%02X", 
-                 name.c_str(), hour, minute, weekdays);
-    }
-    
-    RestartTimerForNextAlarm(now);
-}
-
-void AlarmManager::SetWorkdaysAlarm(const std::string& name, int hour, int minute) {
-    // 工作日：周一到周五，bit1-5
-    uint8_t workdays = 0b00111110; // bit1=周一, bit2=周二...bit5=周五
-    SetWeeklyAlarm(name, hour, minute, workdays);
-    ESP_LOGI(TAG, "Set workdays alarm '%s'", name.c_str());
-}
-
-void AlarmManager::SetWeekendsAlarm(const std::string& name, int hour, int minute) {
-    // 周末：周六周日，bit0和bit6
-    uint8_t weekends = 0b01000001; // bit0=周日, bit6=周六
-    SetWeeklyAlarm(name, hour, minute, weekends);
-    ESP_LOGI(TAG, "Set weekends alarm '%s'", name.c_str());
-}
-
-void AlarmManager::EnableAlarm(const std::string& name, bool enable) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    bool found = false;
-    for(auto& alarm : alarms_) {
-        if(alarm.name == name) {
-            alarm.enabled = enable;
-            
-            // 更新存储
-            auto it = name_to_slot_.find(name);
-            if(it != name_to_slot_.end()) {
-                settings_.SetInt("alarm_en_" + std::to_string(it->second), enable ? 1 : 0);
-            }
-            
-            found = true;
-            ESP_LOGI(TAG, "Alarm '%s' %s", name.c_str(), enable ? "enabled" : "disabled");
-            break;
-        }
-    }
-    
-    if(!found) {
-        ESP_LOGW(TAG, "Alarm '%s' not found", name.c_str());
-        return;
-    }
-    
-    // 重新计算定时器
-    time_t now = time(NULL);
-    RestartTimerForNextAlarm(now);
 }
 
 // ========== 重复闹钟辅助方法实现 ==========
@@ -603,24 +468,15 @@ time_t AlarmManager::CalculateNextTriggerTime(const Alarm& alarm, time_t current
             // 每周指定日期重复
             return GetNextWeekdayTime(hour, minute, alarm.repeat_days, current_time);
             
-        case RepeatType::WORKDAYS:
-            // 工作日
-            return GetNextWeekdayTime(hour, minute, 0b00111110, current_time);
-            
-        case RepeatType::WEEKENDS:
-            // 周末
-            return GetNextWeekdayTime(hour, minute, 0b01000001, current_time);
-            
         case RepeatType::ONCE:
         default:
             // 一次性闹钟不应该调用这个函数
             return alarm.time;
     }
-    // P0修复：添加括号匹配
 }
 
 bool AlarmManager::ShouldTrigger(const Alarm& alarm, time_t now) {
-    return alarm.enabled && alarm.time <= now;
+    return alarm.time <= now;
 }
 
 #endif

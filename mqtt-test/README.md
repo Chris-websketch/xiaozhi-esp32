@@ -13,17 +13,57 @@
 - ✅ 自动CA证书加载
 - ✅ **ACK自动回复**（模拟服务器确认机制）
 
+## 工具列表
+
+本目录包含3个工具：
+
+### 1. MQTT调试工具（图形界面）
+- **文件**: `mqtt_debug_tool.py`
+- **功能**: PySide6图形界面，用于调试MQTT消息
+- **特性**: 消息模板、ACK自动回复、多主题订阅
+
+### 2. 闹钟MQTT中间件（HTTP服务）
+- **文件**: `alarm_mqtt_middleware.py`
+- **功能**: HTTP到MQTT的中间件服务
+- **特性**: REST API接口、ACK确认、多设备管理
+- **文档**: 详见 `MIDDLEWARE_README.md`
+
+### 3. 中间件测试脚本
+- **文件**: `test_middleware.py`
+- **功能**: 演示如何使用中间件API
+- **特性**: 各种闹钟类型测试
+
 ## 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
+依赖包括：
+- `paho-mqtt` - MQTT客户端
+- `PySide6` - 图形界面（仅调试工具需要）
+- `Flask` - HTTP服务器（仅中间件需要）
+- `flask-cors` - 跨域支持（仅中间件需要）
+
 ## 使用方法
+
+### MQTT调试工具
 
 ```bash
 python mqtt_debug_tool.py
 ```
+
+### 闹钟MQTT中间件服务
+
+```bash
+# 启动中间件
+python alarm_mqtt_middleware.py
+
+# 运行测试（另一个终端）
+python test_middleware.py
+```
+
+详细API文档见：[MIDDLEWARE_README.md](MIDDLEWARE_README.md)
 
 ## 默认配置
 
@@ -245,3 +285,81 @@ python mqtt_debug_tool.py
 - 模拟真实服务器响应
 - 提高测试可靠性
 - 支持完整的确认机制测试
+
+## 闹钟MQTT中间件快速开始
+
+中间件服务提供HTTP API接口，将HTTP请求转换为MQTT消息并等待设备确认。
+
+### 启动中间件服务
+
+```bash
+python alarm_mqtt_middleware.py
+```
+
+输出：
+```
+============================================================
+闹钟MQTT中间件服务
+============================================================
+正在连接到MQTT Broker...
+✅ MQTT连接成功
+🚀 启动HTTP服务器 http://0.0.0.0:5000
+============================================================
+```
+
+### HTTP API示例
+
+**设置每日闹钟（curl）**:
+```bash
+curl -X POST http://localhost:5000/api/v1/alarm/quick \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "719ae1ad-9f2c-4277-9c99-1a317a478979",
+    "name": "morning",
+    "type": "daily",
+    "hour": 7,
+    "minute": 30
+  }'
+```
+
+**Python客户端**:
+```python
+import requests
+
+response = requests.post('http://localhost:5000/api/v1/alarm/quick', json={
+    'device_id': '719ae1ad-9f2c-4277-9c99-1a317a478979',
+    'name': 'morning',
+    'type': 'daily',
+    'hour': 7,
+    'minute': 30
+})
+
+result = response.json()
+print(f"成功: {result['success']}")
+```
+
+### 运行测试脚本
+
+```bash
+python test_middleware.py
+```
+
+测试脚本会依次演示：
+1. 健康检查
+2. 一次性闹钟（30秒后）
+3. 每日闹钟（8:00）
+4. 每周闹钟（周一三五 18:00）
+5. 工作日闹钟（7:00）
+6. 周末闹钟（9:00）
+7. 完整参数接口
+8. 取消闹钟
+9. 错误处理
+
+### API端点
+
+- `GET  /health` - 健康检查
+- `POST /api/v1/alarm/set` - 设置闹钟（完整参数）
+- `POST /api/v1/alarm/cancel` - 取消闹钟
+- `POST /api/v1/alarm/quick` - 快速设置闹钟（简化接口）
+
+详细文档：[MIDDLEWARE_README.md](MIDDLEWARE_README.md)

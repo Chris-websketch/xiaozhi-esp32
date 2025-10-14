@@ -20,9 +20,7 @@ static constexpr int MAX_ALARMS = 10;
 enum class RepeatType : uint8_t {
     ONCE = 0,        // 一次性闹钟
     DAILY = 1,       // 每日重复
-    WEEKLY = 2,      // 每周指定日期重复
-    WORKDAYS = 3,    // 工作日（周一到周五）
-    WEEKENDS = 4     // 周末（周六周日）
+    WEEKLY = 2       // 每周指定日期重复（使用repeat_days位掩码）
 };
 
 struct Alarm {
@@ -30,7 +28,6 @@ struct Alarm {
     time_t time;                   // 下一次触发的绝对时间戳
     RepeatType repeat_type;        // 重复类型
     uint8_t repeat_days;           // 位掩码：bit0=周日, bit1=周一...bit6=周六
-    bool enabled;                  // 是否启用
 };
 
 class AlarmManager {
@@ -38,25 +35,13 @@ public:
     AlarmManager();
     ~AlarmManager();
 
-    // 设置闹钟（支持重复类型）
-    void SetAlarm(int seconds_from_now, std::string alarm_name, 
-                  RepeatType repeat_type = RepeatType::ONCE, 
-                  uint8_t repeat_days = 0);
-    
-    // 设置每日重复闹钟（指定时分）
-    void SetDailyAlarm(const std::string& name, int hour, int minute);
-    
-    // 设置每周重复闹钟（自定义周几，使用位掩码）
-    void SetWeeklyAlarm(const std::string& name, int hour, int minute, uint8_t weekdays);
-    
-    // 设置工作日闹钟（周一到周五）
-    void SetWorkdaysAlarm(const std::string& name, int hour, int minute);
-    
-    // 设置周末闹钟（周六周日）
-    void SetWeekendsAlarm(const std::string& name, int hour, int minute);
-    
-    // 启用/禁用闹钟（不删除）
-    void EnableAlarm(const std::string& name, bool enable);
+    // 设置闹钟（统一接口）
+    // 一次性闹钟: seconds_from_now > 0, hour=0, minute=0, repeat_type=ONCE
+    // 每日闹钟: seconds_from_now=0, hour/minute指定时间, repeat_type=DAILY
+    // 每周闹钟: seconds_from_now=0, hour/minute指定时间, repeat_type=WEEKLY, repeat_days设置位掩码
+    void SetAlarm(int seconds_from_now, int hour, int minute,
+                  std::string alarm_name, RepeatType repeat_type, 
+                  uint8_t repeat_days);
     
     // 取消指定名称的闹钟
     void CancelAlarm(std::string alarm_name);

@@ -62,19 +62,19 @@ https://github.com/eclipse-paho/paho.mqtt.java
 ## 3) Alarm（闹钟管理）
 - 名称：`Alarm`
 - 可用方法：
-  - `SetAlarm`（设置闹钟：秒数 + 名称 + 可选重复类型）
+  - `SetAlarm`（设置闹钟：统一接口，所有字段必填）
   - `CancelAlarm`（取消闹钟：名称）
 
-### SetAlarm 参数说明
-- `second_from_now`（必填）：整数，闹钟多少秒后首次触发
-- `alarm_name`（必填）：字符串，闹钟名称（1-64字符，同名会覆盖）
-- `repeat_type`（可选）：整数，重复类型，默认 0
+### SetAlarm 参数说明（所有字段必填）
+- `id`（必填）：字符串，闹钟ID（1-64字符，同ID会覆盖）
+- `repeat_type`（必填）：整数，重复类型
   - `0` = ONCE（一次性，触发后自动删除）
   - `1` = DAILY（每天重复）
   - `2` = WEEKLY（每周指定日期重复）
-  - `3` = WORKDAYS（工作日：周一到周五）
-  - `4` = WEEKENDS（周末：周六周日）
-- `repeat_days`（可选）：整数，周几掩码（仅 `repeat_type=2` 时使用）
+- `seconds`（必填）：整数，ONCE类型使用，从现在开始的秒数；其他类型填0
+- `hour`（必填）：整数，DAILY/WEEKLY使用，小时(0-23)；ONCE类型填0
+- `minute`（必填）：整数，DAILY/WEEKLY使用，分钟(0-59)；ONCE类型填0
+- `repeat_days`（必填）：整数，WEEKLY使用，周几位掩码；其他类型填0
   - bit0 = 周日 (1)
   - bit1 = 周一 (2)
   - bit2 = 周二 (4)
@@ -82,66 +82,68 @@ https://github.com/eclipse-paho/paho.mqtt.java
   - bit4 = 周四 (16)
   - bit5 = 周五 (32)
   - bit6 = 周六 (64)
-  - 示例：周一三五 = 2+8+32 = 42
+  - 示例：周一三五 = 2+8+32 = 42，工作日 = 62，周末 = 65
 
 ### 使用示例
 
-**一次性闹钟（触发后自动删除）**：
+**一次性闹钟（60秒后触发）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 60, "alarm_name": "测试闹钟" } }
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "id": "test_alarm", "repeat_type": 0, "seconds": 60, "hour": 0, "minute": 0, "repeat_days": 0 } }
   ]
 }
 ```
 
-**每天重复闹钟**：
+**每日闹钟（每天早上7:30）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 120, "alarm_name": "每日提醒", "repeat_type": 1 } }
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "id": "daily_reminder", "repeat_type": 1, "seconds": 0, "hour": 7, "minute": 30, "repeat_days": 0 } }
   ]
 }
 ```
 
-**每周一、三、五重复**：
+**每周闹钟（周一、三、五 18:00）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 90, "alarm_name": "健身提醒", "repeat_type": 2, "repeat_days": 42 } }
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "id": "fitness_reminder", "repeat_type": 2, "seconds": 0, "hour": 18, "minute": 0, "repeat_days": 42 } }
   ]
 }
 ```
 
-**工作日闹钟（周一到周五）**：
+**工作日闹钟（周一到周五 7:00）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 300, "alarm_name": "起床闹钟", "repeat_type": 3 } }
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "id": "wakeup_alarm", "repeat_type": 2, "seconds": 0, "hour": 7, "minute": 0, "repeat_days": 62 } }
   ]
 }
 ```
+说明：repeat_days=62 即工作日（周一到周五）
 
-**周末闹钟**：
+**周末闹钟（周六周日 9:00）**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "SetAlarm", "parameters": { "second_from_now": 600, "alarm_name": "周末晨练", "repeat_type": 4 } }
+    { "name": "Alarm", "method": "SetAlarm", "parameters": { "id": "weekend_exercise", "repeat_type": 2, "seconds": 0, "hour": 9, "minute": 0, "repeat_days": 65 } }
   ]
 }
 ```
+说明：repeat_days=65 即周末（周六周日）
 
 **取消闹钟**：
 ```json
 {
   "type": "iot",
   "commands": [
-    { "name": "Alarm", "method": "CancelAlarm", "parameters": { "alarm_name": "测试闹钟" } }
+    { "name": "Alarm", "method": "CancelAlarm", "parameters": { "id": "test_alarm" } }
   ]
 }
 ```
@@ -239,11 +241,10 @@ https://github.com/eclipse-paho/paho.mqtt.java
     - volume：整数，当前音量（0-100）
   - Alarm：闹钟状态
     - alarms：数组，当前闹钟列表（每个闹钟对象包含以下字段）
-      - name：字符串，闹钟名称
+      - id：字符串，闹钟ID
       - time：整数，下次触发的Unix时间戳（秒）
-      - repeat_type：整数，重复类型（0=ONCE, 1=DAILY, 2=WEEKLY, 3=WORKDAYS, 4=WEEKENDS）
-      - repeat_days：整数，周几掩码（仅WEEKLY类型使用）
-      - enabled：布尔值，是否启用
+      - repeat_type：整数，重复类型（0=ONCE, 1=DAILY, 2=WEEKLY）
+      - repeat_days：整数，周几掩码（WEEKLY类型使用）
   - ImageDisplay：图片显示状态
     - mode：字符串，显示模式（"animated" 或 "static"）
   - MusicPlayer：音乐播放器状态
@@ -258,7 +259,7 @@ https://github.com/eclipse-paho/paho.mqtt.java
 
 示例（包含闹钟）：
 ```json
-{"type":"telemetry","online":true,"ts":1760371234,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.0","mac":"b8:f8:62:f0:b3:58","client_id":"719ae1ad-9f2c-4277-9c99-1a317a478979","battery":{"level":95,"charging":false,"discharging":true},"memory":{"free_internal":45678,"min_free_internal":15234},"wifi":{"rssi":-68},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[{"name":"daily_morning","time":1760414400,"repeat_type":1,"repeat_days":0,"enabled":true},{"name":"weekly_meeting","time":1760457600,"repeat_type":2,"repeat_days":42,"enabled":true}]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
+{"type":"telemetry","online":true,"ts":1760371234,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.0","mac":"b8:f8:62:f0:b3:58","client_id":"719ae1ad-9f2c-4277-9c99-1a317a478979","battery":{"level":95,"charging":false,"discharging":true},"memory":{"free_internal":45678,"min_free_internal":15234},"wifi":{"rssi":-68},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[{"name":"daily_morning","time":1760414400,"repeat_type":1,"repeat_days":0},{"name":"weekly_meeting","time":1760457600,"repeat_type":2,"repeat_days":42}]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
 ```
 
 ## 指令执行结果上报（ACK）
@@ -271,7 +272,6 @@ https://github.com/eclipse-paho/paho.mqtt.java
   - `target`: `system` | `notify` | `iot`
   - `status`: `ok` | `error`
   - `request_id`: 可选，透传下行中的 `request_id`（如果存在）
-  - `message_id`: 可选，设备生成的唯一消息ID（用于服务器确认机制）
   - `ts`: 可选，Unix 时间戳（秒）
 
 ### 1) iot 指令 ACK
@@ -294,61 +294,10 @@ https://github.com/eclipse-paho/paho.mqtt.java
 {"type":"ack","target":"notify","status":"ok","request_id":"n1"}
 ```
 
-### 4) 带确认机制的 ACK（默认行为）
-设备使用 `PublishAck` 方法时，会自动添加 `message_id` 字段，启用服务器确认机制：
-```json
-{"type":"ack","target":"iot","status":"ok","command":{"name":"Speaker","method":"SetVolume","parameters":{"volume":100}},"request_id":"123","message_id":"msg_1704901234567_1"}
-```
-
-## ACK 确认机制（服务器端到设备端）
-
-为了确保 ACK 消息的可靠传输，服务器收到设备的 ACK 消息后应立即回复确认。
-
-- 发布主题：devices/{client_id}/downlink
-- QoS：1 或 2
-- 触发时机：服务器收到带有 `message_id` 的 ACK 消息后立即回复
-
-### ACK 确认回复格式
-
-```json
-{
-  "type": "ack_receipt",
-  "message_id": "msg_1704901234567_1",
-  "received_at": 1704901234,
-  "status": "processed"
-}
-```
-
-字段说明：
-- `type`: 固定为 `ack_receipt`
-- `message_id`: 对应设备发送的 ACK 消息中的 `message_id`
-- `received_at`: 服务器接收消息的 Unix 时间戳（秒）
-- `status`: 处理状态
-  - `processed`: 消息已成功处理
-  - `failed`: 消息处理失败
-  - `ignored`: 消息被忽略（如重复消息）
-
-### 设备端行为
-
-1. **发送 ACK**：设备使用 `PublishAck` 方法发送带 `message_id` 的 ACK（自动启用确认机制）
-2. **等待确认**：设备在内部跟踪待确认的消息，默认超时时间 10 秒
-3. **重试机制**：如果超时未收到确认，自动重试最多 2 次，每次重试间隔 2 秒
-4. **确认处理**：收到服务器确认后，从待确认列表中移除消息
-5. **失败处理**：超过最大重试次数后，记录错误并放弃该消息
-
-### 优势
-
-- **端到端可靠性**：确保 ACK 消息真正到达服务器并被处理
-- **网络故障检测**：能够及时发现网络中断、服务器故障等问题
-- **自动重试**：网络抖动时自动恢复，提高系统稳定性
-- **监控友好**：提供详细的日志和统计信息，便于问题定位
-
-### 重要改进
-
-- **默认启用确认机制**：所有通过 `PublishAck` 发送的 ACK 消息都将自动包含 `message_id` 并启用确认机制
-- **提高可靠性**：彻底解决 "send failed, but message may still reach server" 的不确定性问题
-- **服务器端**：必须对所有带 `message_id` 的 ACK 消息回复 `ack_receipt` 确认
-- **向后兼容**：现有代码无需修改，自动享有新的可靠性保障
+**说明**：
+- ACK消息发送后，服务器无需回复确认
+- 依赖MQTT QoS=2保证消息传输可靠性
+- 设备发送ACK后即可继续处理下一个任务
 
 ---
 
@@ -368,32 +317,32 @@ https://github.com/eclipse-paho/paho.mqtt.java
 
 **1. 一次性闹钟（30秒后触发）**
 ```json
-{"method":"SetAlarm","parameters":{"second_from_now":30,"alarm_name":"test_once"}}
+{"type":"iot","commands":[{"name":"Alarm","method":"SetAlarm","parameters":{"id":"test_once","repeat_type":0,"seconds":30,"hour":0,"minute":0,"repeat_days":0}}]}
 ```
 
-**2. 每天重复闹钟（60秒后首次触发）**
+**2. 每日闹钟（每天早上8:00）**
 ```json
-{"method":"SetAlarm","parameters":{"second_from_now":60,"alarm_name":"test_daily","repeat_type":1}}
+{"type":"iot","commands":[{"name":"Alarm","method":"SetAlarm","parameters":{"id":"test_daily","repeat_type":1,"seconds":0,"hour":8,"minute":0,"repeat_days":0}}]}
 ```
 
-**3. 每周一三五闹钟（90秒后首次触发）**
+**3. 每周一三五闹钟（18:00）**
 ```json
-{"method":"SetAlarm","parameters":{"second_from_now":90,"alarm_name":"test_weekly","repeat_type":2,"repeat_days":42}}
+{"type":"iot","commands":[{"name":"Alarm","method":"SetAlarm","parameters":{"id":"test_weekly","repeat_type":2,"seconds":0,"hour":18,"minute":0,"repeat_days":42}}]}
 ```
 
-**4. 工作日闹钟（120秒后首次触发）**
+**4. 工作日闹钟（周一到周五 7:00）**
 ```json
-{"method":"SetAlarm","parameters":{"second_from_now":120,"alarm_name":"test_workdays","repeat_type":3}}
+{"type":"iot","commands":[{"name":"Alarm","method":"SetAlarm","parameters":{"id":"test_workdays","repeat_type":2,"seconds":0,"hour":7,"minute":0,"repeat_days":62}}]}
 ```
 
-**5. 周末闹钟（150秒后首次触发）**
+**5. 周末闹钟（周六周日 9:00）**
 ```json
-{"method":"SetAlarm","parameters":{"second_from_now":150,"alarm_name":"test_weekends","repeat_type":4}}
+{"type":"iot","commands":[{"name":"Alarm","method":"SetAlarm","parameters":{"id":"test_weekends","repeat_type":2,"seconds":0,"hour":9,"minute":0,"repeat_days":65}}]}
 ```
 
 **6. 取消闹钟**
 ```json
-{"method":"CancelAlarm","parameters":{"alarm_name":"test_once"}}
+{"type":"iot","commands":[{"name":"Alarm","method":"CancelAlarm","parameters":{"id":"test_once"}}]}
 ```
 
 ### 周几掩码计算参考
@@ -414,3 +363,9 @@ https://github.com/eclipse-paho/paho.mqtt.java
 - 周末：1 + 64 = **65**
 - 工作日：2 + 4 + 8 + 16 + 32 = **62**
 - 每天：1 + 2 + 4 + 8 + 16 + 32 + 64 = **127**
+
+---
+
+**文档版本**: v2.0  
+**最后更新**: 2025-10-14  
+**重大变更**: 移除ACK确认机制，设备发送ACK后无需等待服务器回复

@@ -11,52 +11,41 @@ namespace iot {
 class AlarmIot : public Thing {
 public:
     AlarmIot() : Thing("Alarm", "一个闹钟, 可以定时提醒") {
-        // 定义设备的属性
-        properties_.AddStringProperty("Alarm_List", "当前闹钟的描述", [this]() -> std::string {
-            auto& app = Application::GetInstance();
-            if(app.alarm_m_ == nullptr){
-                return std::string("AlarmManager is nullptr");
-            }
-            ESP_LOGI(TAG, "Alarm_List %s", app.alarm_m_->GetAlarmsStatus().c_str());
-            return app.alarm_m_->GetAlarmsStatus();
-        });
-
-        // 定义设备可以被远程执行的指令
-        methods_.AddMethod("SetAlarm", "设置一个闹钟", ParameterList({
-            Parameter("second_from_now", "闹钟多少秒以后响", kValueTypeNumber, true),
-            Parameter("alarm_name", "闹钟的描述(名字)", kValueTypeString, true),
-            Parameter("repeat_type", "重复类型: 0=ONCE, 1=DAILY, 2=WEEKLY, 3=WORKDAYS, 4=WEEKENDS", kValueTypeNumber, false),
-            Parameter("repeat_days", "周几掩码(仅WEEKLY使用): bit0=周日,bit1=周一...bit6=周六", kValueTypeNumber, false)
+        // 定义设备可以被远程执行的指令（统一接口）
+        methods_.AddMethod("SetAlarm", "设置一个闹钟（统一接口）", ParameterList({
+            Parameter("id", "闹钟ID", kValueTypeString, true),
+            Parameter("repeat_type", "重复类型: 0=ONCE, 1=DAILY, 2=WEEKLY", kValueTypeNumber, true),
+            Parameter("seconds", "ONCE类型使用：从现在开始的秒数；其他类型填0", kValueTypeNumber, true),
+            Parameter("hour", "DAILY/WEEKLY使用：小时(0-23)；ONCE类型填0", kValueTypeNumber, true),
+            Parameter("minute", "DAILY/WEEKLY使用：分钟(0-59)；ONCE类型填0", kValueTypeNumber, true),
+            Parameter("repeat_days", "WEEKLY使用：位掩码(bit0=周日...bit6=周六)；其他类型填0", kValueTypeNumber, true)
         }), [this](const ParameterList& parameters) {
             auto& app = Application::GetInstance();
             if(app.alarm_m_ == nullptr){
                 ESP_LOGE(TAG, "AlarmManager is nullptr");
                 return;
             }
-            ESP_LOGI(TAG, "SetAlarm");
-            int second_from_now = parameters["second_from_now"].number();
-            std::string alarm_name = parameters["alarm_name"].string();
-            int repeat_type = 0;  // 默认ONCE
-            int repeat_days = 0;
             
-            // 检查是否提供了可选参数
-            try {
-                repeat_type = parameters["repeat_type"].number();
-            } catch(...) {}
-            try {
-                repeat_days = parameters["repeat_days"].number();
-            } catch(...) {}
+            // 获取所有参数（统一字段）
+            std::string id = parameters["id"].string();
+            int repeat_type = parameters["repeat_type"].number();
+            int seconds = parameters["seconds"].number();
+            int hour = parameters["hour"].number();
+            int minute = parameters["minute"].number();
+            int repeat_days = parameters["repeat_days"].number();
             
-            ESP_LOGI(TAG, "SetAlarm with name: '%s', seconds: %d, type: %d, days: 0x%02X", 
-                     alarm_name.c_str(), second_from_now, repeat_type, repeat_days);
-            app.alarm_m_->SetAlarm(second_from_now, alarm_name, 
+            ESP_LOGI(TAG, "SetAlarm: id='%s', type=%d, sec=%d, time=%d:%02d, days=0x%02X", 
+                     id.c_str(), repeat_type, seconds, hour, minute, repeat_days);
+            
+            // 调用统一的SetAlarm接口
+            app.alarm_m_->SetAlarm(seconds, hour, minute, id, 
                                    static_cast<RepeatType>(repeat_type), 
                                    static_cast<uint8_t>(repeat_days));
         });
 
         // 添加取消闹钟方法
         methods_.AddMethod("CancelAlarm", "取消一个闹钟", ParameterList({
-            Parameter("alarm_name", "要取消的闹钟名称", kValueTypeString, true)
+            Parameter("id", "要取消的闹钟ID", kValueTypeString, true)
         }), [this](const ParameterList& parameters) {
             auto& app = Application::GetInstance();
             if(app.alarm_m_ == nullptr){
@@ -64,10 +53,10 @@ public:
                 return;
             }
             ESP_LOGI(TAG, "CancelAlarm");
-            std::string alarm_name = parameters["alarm_name"].string();
-            ESP_LOGI(TAG, "CancelAlarm with name: '%s'", alarm_name.c_str());
-            app.alarm_m_->CancelAlarm(alarm_name);
-            ESP_LOGI(TAG, "CancelAlarm command sent for alarm: %s", alarm_name.c_str());
+            std::string id = parameters["id"].string();
+            ESP_LOGI(TAG, "CancelAlarm with id: '%s'", id.c_str());
+            app.alarm_m_->CancelAlarm(id);
+            ESP_LOGI(TAG, "CancelAlarm command sent for alarm: %s", id.c_str());
         });
     }
 };
