@@ -20,41 +20,46 @@ MqttNotifier::MqttNotifier() {}
 MqttNotifier::~MqttNotifier() { Stop(); }
 
 bool MqttNotifier::LoadSettings() {
-	Settings settings("mqtt", false);
-	endpoint_ = settings.GetString("endpoint");
-	client_id_ = settings.GetString("client_id");
-	username_ = settings.GetString("username");
-	password_ = settings.GetString("password");
-	downlink_topic_ = settings.GetString("downlink_topic");
+    Settings settings("mqtt", false);
+    endpoint_ = settings.GetString("endpoint");
+    client_id_.clear();
+    username_ = settings.GetString("username");
+    password_ = settings.GetString("password");
+    downlink_topic_ = settings.GetString("downlink_topic");
 
-	// 使用内置的 EMQX 地址和测试账号作为默认值
-	if (endpoint_.empty()) {
-		endpoint_ = "x6bf310e.ala.cn-hangzhou.emqxsl.cn";
-	}
-	if (client_id_.empty()) {
-	#ifdef CONFIG_WEBSOCKET_CLIENT_ID
-		client_id_ = CONFIG_WEBSOCKET_CLIENT_ID;
-	#endif
-	}
-	
-	// 强制使用测试账号（覆盖 NVS 中可能存在的旧数据）
-	username_ = "xiaoqiao";
-	password_ = "dzkj0000";
+    // 使用内置的 EMQX 地址和测试账号作为默认值
+    if (endpoint_.empty()) {
+        endpoint_ = "r10aea89.ala.dedicated.aliyun.emqxcloud.cn";
+    }
 
-	if (downlink_topic_.empty() && !client_id_.empty()) {
-		downlink_topic_ = std::string("devices/") + client_id_ + "/downlink";
-	}
-	// 计算上行主题（心跳与事件上报）
-	if (!client_id_.empty()) {
-		uplink_topic_ = std::string("devices/") + client_id_ + "/uplink";
-		// 计算 ACK 主题（指令执行结果）
-		ack_topic_ = std::string("devices/") + client_id_ + "/ack";
-	}
-	if (endpoint_.empty() || client_id_.empty()) {
-		ESP_LOGW(TAG, "MQTT notifier settings incomplete (endpoint/client_id)");
-		return false;
-	}
-	return true;
+    auto global_client_id = SystemInfo::GetClientId();
+    if (!global_client_id.empty()) {
+        client_id_ = global_client_id;
+    }
+    #ifdef CONFIG_WEBSOCKET_CLIENT_ID
+    if (client_id_.empty()) {
+        client_id_ = CONFIG_WEBSOCKET_CLIENT_ID;
+    }
+    #endif
+
+    // 强制使用测试账号（覆盖 NVS 中可能存在的旧数据）
+    username_ = "xiaoqiao";
+    password_ = "dzkj0000";
+
+    if (downlink_topic_.empty() && !client_id_.empty()) {
+        downlink_topic_ = std::string("devices/") + client_id_ + "/downlink";
+    }
+    // 计算上行主题（心跳与事件上报）
+    if (!client_id_.empty()) {
+        uplink_topic_ = std::string("devices/") + client_id_ + "/uplink";
+        // 计算 ACK 主题（指令执行结果）
+        ack_topic_ = std::string("devices/") + client_id_ + "/ack";
+    }
+    if (endpoint_.empty() || client_id_.empty()) {
+        ESP_LOGW(TAG, "MQTT notifier settings incomplete (endpoint/client_id)");
+        return false;
+    }
+    return true;
 }
 
 void MqttNotifier::Start() {
