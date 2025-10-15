@@ -32,6 +32,7 @@ public:
     virtual void SetIdle(bool status){};
     
     virtual void StartUpdateTimer();
+    virtual void ProcessPendingUpdate();  // 处理待执行的更新
     
     virtual void CreateCanvas();
     virtual void DestroyCanvas();
@@ -70,6 +71,7 @@ protected:
     const char* network_icon_ = nullptr;
     bool muted_ = false;
     std::string current_theme_name_;
+    bool update_pending_ = false;  // 标记是否有待处理的更新
 
     esp_timer_handle_t notification_timer_ = nullptr;
     esp_timer_handle_t update_timer_ = nullptr;

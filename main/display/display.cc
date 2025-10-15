@@ -38,7 +38,8 @@ Display::Display() {
     esp_timer_create_args_t update_display_timer_args = {
         .callback = [](void *arg) {
             Display *display = static_cast<Display*>(arg);
-            display->Update();
+            // 只设置标志位，不直接执行LVGL操作，避免在esp_timer任务中阻塞
+            display->update_pending_ = true;
         },
         .arg = this,
         .dispatch_method = ESP_TIMER_TASK,
@@ -239,6 +240,14 @@ void Display::StartUpdateTimer() {
     if (update_timer_ != nullptr) {
         ESP_LOGI(TAG, "启动显示更新定时器");
         ESP_ERROR_CHECK(esp_timer_start_periodic(update_timer_, 1000000));
+    }
+}
+
+void Display::ProcessPendingUpdate() {
+    // 检查是否有待处理的更新
+    if (update_pending_) {
+        update_pending_ = false;  // 清除标志
+        Update();  // 在安全的上下文中执行更新
     }
 }
 

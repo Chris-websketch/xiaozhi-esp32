@@ -155,6 +155,13 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
     SetupUI();
 #endif
 
+    // 创建LVGL定时器，用于在LVGL任务上下文中处理待处理的更新
+    update_check_timer_ = lv_timer_create([](lv_timer_t* timer) {
+        Display* display = static_cast<Display*>(lv_timer_get_user_data(timer));
+        display->ProcessPendingUpdate();
+    }, 50, this);  // 每50ms检查一次
+    
+    ESP_LOGI(TAG, "LVGL update check timer created");
 }
 
 // RGB LCD实现
@@ -227,9 +234,22 @@ RgbLcdDisplay::RgbLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
     }
 
     SetupUI();
+    
+    // 创建LVGL定时器，用于在LVGL任务上下文中处理待处理的更新
+    update_check_timer_ = lv_timer_create([](lv_timer_t* timer) {
+        Display* display = static_cast<Display*>(lv_timer_get_user_data(timer));
+        display->ProcessPendingUpdate();
+    }, 50, this);  // 每50ms检查一次
+    
+    ESP_LOGI(TAG, "LVGL update check timer created");
 }
 
 LcdDisplay::~LcdDisplay() {
+    // 先清理LVGL定时器
+    if (update_check_timer_ != nullptr) {
+        lv_timer_del(update_check_timer_);
+    }
+    
     // 然后再清理 LVGL 对象
     if (content_ != nullptr) {
         lv_obj_del(content_);

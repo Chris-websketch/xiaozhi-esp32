@@ -19,6 +19,7 @@ protected:
     lv_obj_t* content_ = nullptr;
     lv_obj_t* container_ = nullptr;
     lv_obj_t* side_bar_ = nullptr;
+    lv_timer_t* update_check_timer_ = nullptr;  // LVGL定时器用于检查待处理的更新
 
     DisplayFonts fonts_;
 
