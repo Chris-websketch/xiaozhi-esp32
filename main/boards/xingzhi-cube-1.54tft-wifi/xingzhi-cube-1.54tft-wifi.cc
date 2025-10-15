@@ -26,6 +26,7 @@
 
 LV_FONT_DECLARE(font_puhui_20_4);
 LV_FONT_DECLARE(font_awesome_20_4);
+LV_FONT_DECLARE(time50);
 
 // 声明使用的全局变量
 extern "C" {
@@ -111,6 +112,12 @@ public:
         }
     }
 
+    // 显示待机时钟页面
+    void ShowIdleClock();
+    
+    // 隐藏待机时钟页面
+    void HideIdleClock();
+    
     // 更新预加载进度UI
     void UpdatePreloadProgressUI(bool show, int current, int total, const char* message) {
         DisplayLockGuard lock(this);
@@ -150,6 +157,14 @@ public:
     lv_obj_t* preload_progress_container_ = nullptr;
     lv_obj_t* preload_progress_arc_ = nullptr;
     lv_obj_t* preload_message_label_ = nullptr;
+    
+    // 待机时钟页面UI元素
+    lv_obj_t* idle_clock_container_ = nullptr;
+    lv_obj_t* idle_time_label_ = nullptr;        // 时:分
+    lv_obj_t* idle_second_label_ = nullptr;      // 秒
+    lv_obj_t* idle_date_label_ = nullptr;        // 日期
+    lv_obj_t* idle_weekday_label_ = nullptr;     // 星期
+    lv_timer_t* idle_clock_timer_ = nullptr;     // 时钟更新定时器
 
 private:
 
@@ -224,6 +239,107 @@ private:
         
         lv_obj_move_foreground(preload_progress_container_);
     }
+    
+    // 创建待机时钟页面UI
+    // 包含时钟显示、日期显示、星期显示
+    void CreateIdleClockUI() {
+        // 创建全屏容器作为时钟页面的根容器
+        idle_clock_container_ = lv_obj_create(lv_scr_act());
+        // 设置容器大小为屏幕分辨率
+        lv_obj_set_size(idle_clock_container_, LV_HOR_RES, LV_VER_RES);
+        // 将容器居中对齐
+        lv_obj_center(idle_clock_container_);
+        // 设置容器背景色为黑色
+        lv_obj_set_style_bg_color(idle_clock_container_, lv_color_black(), 0);
+        // 设置容器背景不透明度为完全不透明
+        lv_obj_set_style_bg_opa(idle_clock_container_, LV_OPA_COVER, 0);
+        // 设置容器边框宽度为0（无边框）
+        lv_obj_set_style_border_width(idle_clock_container_, 0, 0);
+        // 设置容器圆角半径为0（无圆角）
+        lv_obj_set_style_radius(idle_clock_container_, 0, 0);
+        // 设置容器内边距为0
+        lv_obj_set_style_pad_all(idle_clock_container_, 0, 0);
+        
+        // 创建秒钟标签（显示在顶部）
+        idle_second_label_ = lv_label_create(idle_clock_container_);
+        // 设置秒钟标签字体为time50
+        lv_obj_set_style_text_font(idle_second_label_, &time50, 0);
+        // 设置秒钟标签文字颜色为白色
+        lv_obj_set_style_text_color(idle_second_label_, lv_color_white(), 0);
+        // 设置秒钟标签初始文本为"00"
+        lv_label_set_text(idle_second_label_, "00");
+        // 将秒钟标签对齐到顶部中心位置，向下偏移10像素
+        lv_obj_align(idle_second_label_, LV_ALIGN_TOP_MID, 0, 30);
+        
+        // 创建主时间标签（显示时:分，使用大字体）
+        idle_time_label_ = lv_label_create(idle_clock_container_);
+        // 设置主时间标签字体为time50
+        lv_obj_set_style_text_font(idle_time_label_, &time50, 0);
+        // 设置主时间标签文字颜色为黄色
+        lv_obj_set_style_text_color(idle_time_label_, lv_color_hex(0xFFFF00), 0);
+        // 设置主时间标签初始文本为"00:00"
+        lv_label_set_text(idle_time_label_, "00:00");
+        // 将主时间标签对齐到屏幕中心，向上偏移10像素
+        lv_obj_align(idle_time_label_, LV_ALIGN_CENTER, 0, -10);
+        
+        // 创建日期标签（显示年-月-日）
+        idle_date_label_ = lv_label_create(idle_clock_container_);
+        // 设置日期标签字体为普惠字体20号
+        lv_obj_set_style_text_font(idle_date_label_, &font_puhui_20_4, 0);
+        // 设置日期标签文字颜色为白色
+        lv_obj_set_style_text_color(idle_date_label_, lv_color_white(), 0);
+        // 设置日期标签初始文本为"2024-01-01"
+        lv_label_set_text(idle_date_label_, "2024-01-01");
+        // 将日期标签对齐到屏幕中心，向下偏移30像素
+        lv_obj_align(idle_date_label_, LV_ALIGN_CENTER, 0, 30);
+        
+        // 创建星期标签（显示星期几）
+        idle_weekday_label_ = lv_label_create(idle_clock_container_);
+        // 设置星期标签字体为普惠字体20号
+        lv_obj_set_style_text_font(idle_weekday_label_, &font_puhui_20_4, 0);
+        // 设置星期标签文字颜色为灰色（0xAAAAAA）
+        lv_obj_set_style_text_color(idle_weekday_label_, lv_color_hex(0xAAAAAA), 0);
+        // 设置星期标签初始文本为"星期一"
+        lv_label_set_text(idle_weekday_label_, "星期一");
+        // 将星期标签对齐到屏幕中心，向下偏移55像素
+        lv_obj_align(idle_weekday_label_, LV_ALIGN_CENTER, 0, 55);
+        
+        // 初始状态下隐藏时钟容器
+        lv_obj_add_flag(idle_clock_container_, LV_OBJ_FLAG_HIDDEN);
+        
+        // 记录日志：待机时钟页面UI创建完成
+        ESP_LOGI(TAG, "待机时钟页面UI创建完成");
+    }
+    
+    // 更新待机时钟显示（内部方法）
+    void UpdateIdleClockInternal() {
+        if (idle_time_label_ == nullptr) return;
+        
+        time_t now;
+        struct tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        
+        // 更新时:分
+        char time_buf[16];
+        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+        lv_label_set_text(idle_time_label_, time_buf);
+        
+        // 更新秒
+        char sec_buf[8];
+        snprintf(sec_buf, sizeof(sec_buf), "%02d", timeinfo.tm_sec);
+        lv_label_set_text(idle_second_label_, sec_buf);
+        
+        // 更新日期
+        char date_buf[32];
+        snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d", 
+                 timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+        lv_label_set_text(idle_date_label_, date_buf);
+        
+        // 更新星期
+        const char* weekdays[] = {"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"};
+        lv_label_set_text(idle_weekday_label_, weekdays[timeinfo.tm_wday]);
+    }
 };
 
 class XINGZHI_CUBE_1_54TFT_WIFI : public WifiBoard {
@@ -254,25 +370,28 @@ private:
         rtc_gpio_set_direction(GPIO_NUM_21, RTC_GPIO_MODE_OUTPUT_ONLY);
         rtc_gpio_set_level(GPIO_NUM_21, 1);
 
-        power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
+        power_save_timer_ = new PowerSaveTimer(-1, 15, 180);
         power_save_timer_->OnEnterSleepMode([this]() {
             ESP_LOGI(TAG, "Enabling sleep mode");
             display_->SetChatMessage("system", "");
             display_->SetEmotion("sleepy");
-            GetBacklight()->SetBrightness(1);
+            display_->ShowIdleClock();  // 显示待机时钟页面
+            GetBacklight()->SetBrightness(10);  // 降低亮度但保持可见
         });
         power_save_timer_->OnExitSleepMode([this]() {
+            display_->HideIdleClock();  // 隐藏待机时钟页面
             display_->SetChatMessage("system", "");
             display_->SetEmotion("neutral");
             GetBacklight()->RestoreBrightness();
         });
         power_save_timer_->OnShutdownRequest([this]() {
-            ESP_LOGI(TAG, "Shutting down");
+            ESP_LOGI(TAG, "Entering deep sleep mode with minimal brightness");
             rtc_gpio_set_level(GPIO_NUM_21, 0);
             // 启用保持功能，确保睡眠期间电平不变
             rtc_gpio_hold_en(GPIO_NUM_21);
-            esp_lcd_panel_disp_on_off(panel_, false); //关闭显示
-            esp_deep_sleep_start();
+            // 不关闭显示屏，仅将亮度降至1%
+            GetBacklight()->SetBrightness(1);
+            // 注意：这里不调用 esp_deep_sleep_start()，保持显示时钟运行
         });
         power_save_timer_->SetEnabled(true);
     }
@@ -806,5 +925,50 @@ public:
         WifiBoard::SetPowerSaveMode(enabled);
     }
 };
+
+// CustomLcdDisplay 公共方法实现
+void CustomLcdDisplay::ShowIdleClock() {
+    DisplayLockGuard lock(this);
+    
+    if (idle_clock_container_ == nullptr) {
+        CreateIdleClockUI();
+    }
+    
+    // 更新时钟显示
+    UpdateIdleClockInternal();
+    
+    // 显示时钟容器
+    lv_obj_clear_flag(idle_clock_container_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(idle_clock_container_);
+    
+    // 启动定时器，每秒更新一次
+    if (idle_clock_timer_ == nullptr) {
+        idle_clock_timer_ = lv_timer_create([](lv_timer_t* timer) {
+            CustomLcdDisplay* display = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(timer));
+            if (display) {
+                DisplayLockGuard lock(display);
+                display->UpdateIdleClockInternal();
+            }
+        }, 1000, this);
+    }
+    
+    ESP_LOGI(TAG, "待机时钟页面已显示");
+}
+
+void CustomLcdDisplay::HideIdleClock() {
+    DisplayLockGuard lock(this);
+    
+    if (idle_clock_container_ != nullptr) {
+        lv_obj_add_flag(idle_clock_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // 停止定时器
+    if (idle_clock_timer_ != nullptr) {
+        lv_timer_del(idle_clock_timer_);
+        idle_clock_timer_ = nullptr;
+    }
+    
+    ESP_LOGI(TAG, "待机时钟页面已隐藏");
+}
 
 DECLARE_BOARD(XINGZHI_CUBE_1_54TFT_WIFI);
