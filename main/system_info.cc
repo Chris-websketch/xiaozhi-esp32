@@ -450,9 +450,9 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     requesting = true;
     GeoLocationInfo result;
     
-    // 检查WiFi连接状态
-    if (!WifiStation::GetInstance().IsConnected()) {
-        ESP_LOGW(TAG, "WiFi not connected, cannot get geolocation info");
+    // 检查网络连接状态
+    if (!Board::GetInstance().IsNetworkReady()) {
+        ESP_LOGW(TAG, "Network not connected, cannot get geolocation info");
         requesting = false;
         return result;
     }

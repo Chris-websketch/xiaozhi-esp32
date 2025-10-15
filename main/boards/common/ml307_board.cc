@@ -67,6 +67,10 @@ void Ml307Board::WaitForNetworkReady() {
     modem_.ResetConnections();
 }
 
+bool Ml307Board::IsNetworkReady() {
+    return modem_.network_ready();
+}
+
 Http* Ml307Board::CreateHttp() {
     return new Ml307Http(modem_);
 }

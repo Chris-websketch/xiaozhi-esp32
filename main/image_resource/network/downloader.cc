@@ -38,8 +38,8 @@ esp_err_t Downloader::DownloadFile(const char* url, const char* filepath,
     while (retry_count < config_->network.retry_count) {
         last_logged_percent = -1;
         
-        if (!WifiStation::GetInstance().IsConnected()) {
-            ESP_LOGE(TAG, "WiFi连接已断开");
+        if (!Board::GetInstance().IsNetworkReady()) {
+            ESP_LOGE(TAG, "网络连接已断开");
             if (progress_callback_) {
                 progress_callback_(0, 100, "网络连接已断开，等待重连...");
             }
@@ -168,8 +168,8 @@ esp_err_t Downloader::DownloadFile(const char* url, const char* filepath,
                     break;
                 }
                 
-                if (!WifiStation::GetInstance().IsConnected()) {
-                    ESP_LOGE(TAG, "WiFi断开，中止下载");
+                if (!Board::GetInstance().IsNetworkReady()) {
+                    ESP_LOGE(TAG, "网络断开，中止下载");
                     download_success = false;
                     break;
                 }

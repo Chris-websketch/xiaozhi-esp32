@@ -42,6 +42,7 @@ public:
     virtual Mqtt* CreateMqtt() = 0;
     virtual Udp* CreateUdp() = 0;
     virtual void StartNetwork() = 0;
+    virtual bool IsNetworkReady() = 0;  // 检查网络是否就绪（WiFi或4G）
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
     virtual std::string GetJson();

@@ -12,8 +12,8 @@
 namespace ImageResource {
 
 esp_err_t VersionChecker::CheckServer(const char* api_url, ResourceVersions& versions) {
-    if (!WifiStation::GetInstance().IsConnected()) {
-        ESP_LOGW(TAG, "未连接WiFi");
+    if (!Board::GetInstance().IsNetworkReady()) {
+        ESP_LOGW(TAG, "网络未连接");
         return ESP_FAIL;
     }
     

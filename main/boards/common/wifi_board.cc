@@ -144,8 +144,11 @@ void WifiBoard::StartNetwork() {
         wifi_station.Stop();
         wifi_config_mode_ = true;
         EnterWifiConfigMode();
-        return;
     }
+}
+
+bool WifiBoard::IsNetworkReady() {
+    return WifiStation::GetInstance().IsConnected();
 }
 
 Http* WifiBoard::CreateHttp() {
