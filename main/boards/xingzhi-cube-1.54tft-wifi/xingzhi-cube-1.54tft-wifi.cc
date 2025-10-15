@@ -350,6 +350,7 @@ private:
     CustomLcdDisplay* display_;
     PowerSaveTimer* power_save_timer_;
     PowerManager* power_manager_;
+    bool is_charging_ = false;
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
     TaskHandle_t image_task_handle_ = nullptr;
@@ -357,11 +358,11 @@ private:
     void InitializePowerManager() {
         power_manager_ = new PowerManager(GPIO_NUM_38);
         power_manager_->OnChargingStatusChanged([this](bool is_charging) {
-            if (is_charging) {
-                power_save_timer_->SetEnabled(false);
-            } else {
-                power_save_timer_->SetEnabled(true);
+            is_charging_ = is_charging;
+            if (is_charging_) {
+                power_save_timer_->WakeUp();
             }
+            power_save_timer_->SetEnabled(true);
         });
     }
 
@@ -376,7 +377,9 @@ private:
             display_->SetChatMessage("system", "");
             display_->SetEmotion("sleepy");
             display_->ShowIdleClock();  // 显示待机时钟页面
-            GetBacklight()->SetBrightness(10);  // 降低亮度但保持可见
+            if (!is_charging_) {
+                GetBacklight()->SetBrightness(10);  // 降低亮度但保持可见
+            }
         });
         power_save_timer_->OnExitSleepMode([this]() {
             display_->HideIdleClock();  // 隐藏待机时钟页面
@@ -389,8 +392,10 @@ private:
             rtc_gpio_set_level(GPIO_NUM_21, 0);
             // 启用保持功能，确保睡眠期间电平不变
             rtc_gpio_hold_en(GPIO_NUM_21);
-            // 不关闭显示屏，仅将亮度降至1%
-            GetBacklight()->SetBrightness(1);
+            // 不关闭显示屏，仅在非充电状态下降至1%
+            if (!is_charging_) {
+                GetBacklight()->SetBrightness(1);
+            }
             // 注意：这里不调用 esp_deep_sleep_start()，保持显示时钟运行
         });
         power_save_timer_->SetEnabled(true);
