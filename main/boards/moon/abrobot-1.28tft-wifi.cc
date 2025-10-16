@@ -1564,6 +1564,10 @@ private:
     // 音乐播放器MQTT控制器
     MqttMusicHandler* mqtt_music_handler_ = nullptr;
     
+    // 屏幕旋转状态管理
+    bool is_screen_rotated_ = false;
+    esp_timer_handle_t rotation_check_timer_ = nullptr;  // 旋转状态检查定时器
+    
     // 将URL定义为静态变量 - 现在只需要一个API URL
     static const char* API_URL;
     static const char* VERSION_URL;
@@ -1624,6 +1628,99 @@ private:
         display_ = new CustomLcdDisplay(io_handle, panel,
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, 
                                     DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+    }
+    
+    // 屏幕旋转控制方法
+    void RotateScreen(bool rotate_90_degrees) {
+        if (panel == nullptr) {
+            ESP_LOGE(TAG, "LCD panel未初始化，无法旋转屏幕");
+            return;
+        }
+        
+        // 暂停图片轮播任务，避免在旋转时产生冲突
+        if (image_task_handle_ != nullptr) {
+            vTaskSuspend(image_task_handle_);
+            ESP_LOGI(TAG, "已暂停图片轮播任务");
+        }
+        
+        // 等待一小段时间，确保任务完全暂停
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // 获取LVGL显示锁，避免与UI更新冲突
+        if (display_) {
+            DisplayLockGuard lock(display_);
+            
+            if (rotate_90_degrees) {
+                // 顺时针旋转90度
+                ESP_LOGI(TAG, "旋转屏幕90度");
+                ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
+                ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, false, false));
+                
+                // 同步更新LVGL显示设备旋转
+                lv_display_t* lv_disp = display_->GetLvDisplay();
+                if (lv_disp) {
+                    lv_display_set_rotation(lv_disp, LV_DISPLAY_ROTATION_270);
+                    ESP_LOGI(TAG, "LVGL显示旋转已更新为270度");
+                }
+            } else {
+                // 恢复正常角度
+                ESP_LOGI(TAG, "恢复屏幕到正常角度");
+                ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY));
+                ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y));
+                
+                // 恢复LVGL显示设备旋转
+                lv_display_t* lv_disp = display_->GetLvDisplay();
+                if (lv_disp) {
+                    lv_display_set_rotation(lv_disp, LV_DISPLAY_ROTATION_0);
+                    ESP_LOGI(TAG, "LVGL显示旋转已恢复为0度");
+                }
+            }
+            
+            is_screen_rotated_ = rotate_90_degrees;
+            
+            // 管理定时检查定时器
+            if (rotate_90_degrees) {
+                // 启动定时器，每3秒检查一次USB连接状态
+                if (rotation_check_timer_ == nullptr) {
+                    esp_timer_create_args_t timer_args = {
+                        .callback = [](void* arg) {
+                            CustomBoard* self = static_cast<CustomBoard*>(arg);
+                            // 检查USB是否仍然连接
+                            if (self->power_manager_ && self->is_screen_rotated_) {
+                                if (!self->power_manager_->IsUsbConnected()) {
+                                    ESP_LOGI(TAG, "USB已断开，自动恢复屏幕");
+                                    self->RotateScreen(false);
+                                    if (self->display_) {
+                                        self->display_->ShowCenterNotification("充电底座已断开\n屏幕已恢复正常", 3000);
+                                    }
+                                }
+                            }
+                        },
+                        .arg = this,
+                        .dispatch_method = ESP_TIMER_TASK,
+                        .name = "rotation_check",
+                        .skip_unhandled_events = true
+                    };
+                    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &rotation_check_timer_));
+                    ESP_ERROR_CHECK(esp_timer_start_periodic(rotation_check_timer_, 3000000));  // 3秒检查一次
+                    ESP_LOGI(TAG, "已启动旋转状态检查定时器");
+                }
+            } else {
+                // 停止并删除定时器
+                if (rotation_check_timer_ != nullptr) {
+                    esp_timer_stop(rotation_check_timer_);
+                    esp_timer_delete(rotation_check_timer_);
+                    rotation_check_timer_ = nullptr;
+                    ESP_LOGI(TAG, "已停止旋转状态检查定时器");
+                }
+            }
+        }
+        
+        // 恢复图片轮播任务
+        if (image_task_handle_ != nullptr) {
+            vTaskResume(image_task_handle_);
+            ESP_LOGI(TAG, "已恢复图片轮播任务");
+        }
     }
     
     // 自定义按钮初始化
@@ -1733,6 +1830,52 @@ private:
             app.ToggleChatState();  // 切换聊天状态
             
         });
+        
+        // 长按boot按键：在充电时旋转屏幕
+        boot_btn.OnLongPress([this]() {
+            ESP_LOGI(TAG, "检测到长按boot按键");
+            
+            // 检查是否处于超级省电模式
+            if (is_in_super_power_save_) {
+                ESP_LOGW(TAG, "设备处于超级省电模式，忽略屏幕旋转操作");
+                return;
+            }
+            
+            // 检查用户交互是否被禁用
+            if (display_ && static_cast<CustomLcdDisplay*>(display_)->user_interaction_disabled_) {
+                ESP_LOGW(TAG, "用户交互已禁用，忽略屏幕旋转操作");
+                return;
+            }
+            
+            // 检查USB是否插入（直接检测USB连接状态）
+            bool usb_connected = power_manager_ ? power_manager_->IsUsbConnected() : false;
+            ESP_LOGI(TAG, "长按按键触发 - USB连接状态检查: %s", usb_connected ? "已连接" : "未连接");
+            
+            if (!usb_connected) {
+                ESP_LOGW(TAG, "USB未插入，屏幕旋转功能仅在连接充电底座时可用");
+                if (display_) {
+                    display_->ShowCenterNotification("请连接官方充电底座", 3000);
+                }
+                return;
+            }
+            
+            // 唤醒省电定时器
+            if (power_save_timer_) {
+                power_save_timer_->WakeUp();
+            }
+            
+            // 切换旋转状态
+            bool new_rotation_state = !is_screen_rotated_;
+            RotateScreen(new_rotation_state);
+            
+            // 显示操作反馈
+            if (display_) {
+                const char* msg = new_rotation_state ? "屏幕已旋转" : "屏幕已旋转";
+                display_->ShowCenterNotification(msg, 3000);
+            }
+            
+            ESP_LOGI(TAG, "屏幕旋转状态: %s", new_rotation_state ? "已旋转90度" : "正常");
+        });
  
     }
 
@@ -1772,10 +1915,10 @@ private:
 
     // 初始化电源管理器
     void InitializePowerManager() {
-        power_manager_ = new PowerManager(CHARGING_STATUS_PIN);
+        power_manager_ = new PowerManager(CHARGING_STATUS_PIN, USB_DETECT_PIN);
         power_manager_->OnChargingStatusChanged([this](bool is_charging) {
             ESP_LOGI(TAG, "充电状态变化: %s", is_charging ? "充电中" : "未充电");
-            // 在此处可以添加充电状态变化的处理逻辑
+            // USB断开检测由定时器处理，这里只记录充电状态变化
         });
         power_manager_->OnLowBatteryStatusChanged([this](bool is_low_battery) {
             ESP_LOGI(TAG, "低电量状态变化: %s", is_low_battery ? "低电量" : "正常电量");

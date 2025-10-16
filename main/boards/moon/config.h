@@ -92,6 +92,7 @@
 // 电池管理相关引脚定义
 #define BATTERY_ADC_PIN         GPIO_NUM_1     // 电池电压检测ADC引脚
 #define CHARGING_STATUS_PIN     GPIO_NUM_5     // 充电状态检测引脚（CHSTA信号）
+#define USB_DETECT_PIN          GPIO_NUM_3     // USB插入检测引脚（USBCON信号）
 #define BATTERY_ADC_CHANNEL     ADC_CHANNEL_0  // 对应GPIO1的ADC通道
 #endif
 

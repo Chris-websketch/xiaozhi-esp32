@@ -45,6 +45,7 @@ public:
 
     virtual lv_obj_t* GetCanvas() { return canvas_; }
     virtual void* GetCanvasBuffer() { return canvas_buffer_; }
+    virtual lv_display_t* GetLvDisplay() { return display_; }
 
 protected:
     int width_ = 0;

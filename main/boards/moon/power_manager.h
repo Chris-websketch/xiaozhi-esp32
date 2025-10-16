@@ -14,10 +14,12 @@ private:
     std::function<void(bool)> on_low_battery_status_changed_;
 
     gpio_num_t charging_pin_ = GPIO_NUM_NC;
+    gpio_num_t usb_detect_pin_ = GPIO_NUM_NC;
     std::vector<uint16_t> adc_values_;
     uint32_t battery_level_ = 0;
     uint32_t last_reported_battery_level_ = 0;
     bool is_charging_ = false;
+    bool is_usb_connected_ = false;
     bool is_low_battery_ = false;
     int ticks_ = 0;
     const int kBatteryAdcInterval = 60;
@@ -27,6 +29,27 @@ private:
     adc_oneshot_unit_handle_t adc_handle_;
 
     void CheckBatteryStatus() {
+        // 检测USB连接状态（GPIO_NUM_3的USBCON信号）
+        if (usb_detect_pin_ != GPIO_NUM_NC) {
+            int usb_level = gpio_get_level(usb_detect_pin_);
+            bool new_usb_status = usb_level == 1;  // 高电平表示USB已连接
+            
+            // 调试：每10秒输出一次当前USB检测状态
+            static int usb_check_count = 0;
+            if (++usb_check_count % 10 == 0) {
+                ESP_LOGI("PowerManager", "USB检测 - GPIO[%d]=%d, 状态:%s", 
+                         usb_detect_pin_, usb_level, new_usb_status ? "已连接" : "未连接");
+            }
+            
+            if (new_usb_status != is_usb_connected_) {
+                ESP_LOGI("PowerManager", "USB连接状态发生变化: %s -> %s (GPIO=%d)",
+                        is_usb_connected_ ? "已连接" : "未连接",
+                        new_usb_status ? "已连接" : "未连接",
+                        usb_level);
+                is_usb_connected_ = new_usb_status;
+            }
+        }
+        
         // 使用GPIO_NUM_5检测充电状态（CHSTA信号）
         int gpio_level = gpio_get_level(charging_pin_);
         
@@ -126,7 +149,8 @@ private:
     }
 
 public:
-    PowerManager(gpio_num_t pin) : charging_pin_(pin) {
+    PowerManager(gpio_num_t charging_pin, gpio_num_t usb_detect_pin = GPIO_NUM_NC) 
+        : charging_pin_(charging_pin), usb_detect_pin_(usb_detect_pin) {
         // 初始化充电状态检测引脚
         gpio_config_t io_conf = {};
         io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -137,6 +161,19 @@ public:
         gpio_config(&io_conf);
         
         ESP_LOGI("PowerManager", "初始化充电状态检测引脚 GPIO[%d] (CHSTA)，启用内部上拉电阻", charging_pin_);
+        
+        // 初始化USB检测引脚
+        if (usb_detect_pin_ != GPIO_NUM_NC) {
+            gpio_config_t usb_conf = {};
+            usb_conf.intr_type = GPIO_INTR_DISABLE;
+            usb_conf.mode = GPIO_MODE_INPUT;
+            usb_conf.pin_bit_mask = (1ULL << usb_detect_pin_);
+            usb_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // 禁用内部下拉
+            usb_conf.pull_up_en = GPIO_PULLUP_DISABLE;      // 禁用内部上拉（电路有外部电阻）
+            gpio_config(&usb_conf);
+            
+            ESP_LOGI("PowerManager", "初始化USB检测引脚 GPIO[%d] (USBCON)，浮空输入模式（依赖外部电阻）", usb_detect_pin_);
+        }
 
         // 创建电池电量检查定时器
         esp_timer_create_args_t timer_args = {
@@ -155,6 +192,12 @@ public:
         vTaskDelay(pdMS_TO_TICKS(100));  // 等待GPIO稳定
         int gpio_initial = gpio_get_level(charging_pin_);
         ESP_LOGI("PowerManager", "初始充电状态 - GPIO[%d] (CHSTA): %d", charging_pin_, gpio_initial);
+        
+        // 读取USB检测引脚状态
+        if (usb_detect_pin_ != GPIO_NUM_NC) {
+            int usb_initial = gpio_get_level(usb_detect_pin_);
+            ESP_LOGI("PowerManager", "初始USB连接状态 - GPIO[%d] (USBCON): %d", usb_detect_pin_, usb_initial);
+        }
         
         ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handle_, 1000000));
 
@@ -191,6 +234,12 @@ public:
     bool IsDischarging() {
         // 没有区分充电和放电，所以直接返回相反状态
         return !is_charging_;
+    }
+    
+    bool IsUsbConnected() {
+        // 返回USB连接状态（独立于充电状态）
+        // 即使电池充满，只要USB插着就返回true
+        return is_usb_connected_;
     }
 
     uint8_t GetBatteryLevel() {
