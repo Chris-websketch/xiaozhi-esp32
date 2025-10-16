@@ -90,6 +90,18 @@ void LocalIntentDetector::InitializeDefaultRules() {
     display_mode_rule.parameter_extractor = ExtractDisplayModeParameters;
     AddKeywordRule(display_mode_rule);
     
+    // 字幕控制规则
+    KeywordRule subtitle_rule;
+    subtitle_rule.keywords = {
+        "打开字幕", "开启字幕", "显示字幕",
+        "关闭字幕", "隐藏字幕", "关掉字幕"
+    };
+    subtitle_rule.intent_type = IntentType::SUBTITLE_CONTROL;
+    subtitle_rule.action = "ToggleSubtitle";
+    subtitle_rule.device = "SubtitleControl";
+    subtitle_rule.parameter_extractor = ExtractSubtitleParameters;
+    AddKeywordRule(subtitle_rule);
+    
     ESP_LOGI(TAG, "已加载 %d 个默认检测规则", keyword_rules_.size());
 }
 
@@ -108,11 +120,11 @@ bool LocalIntentDetector::DetectIntent(const std::string& text, IntentResult& re
                               text.find("声音") != std::string::npos ||
                               text.find("volume") != std::string::npos);
     bool has_theme_context = (text.find("主题") != std::string::npos ||
-                             text.find("字体") != std::string::npos ||
-                             text.find("字幕") != std::string::npos);
+                             text.find("字体") != std::string::npos);
     bool has_display_mode_context = (text.find("模式") != std::string::npos ||
                                     text.find("壁纸") != std::string::npos ||
                                     text.find("皮肤") != std::string::npos);
+    bool has_subtitle_context = (text.find("字幕") != std::string::npos);
     
     for (const auto& rule : keyword_rules_) {
         if (MatchKeywords(processed_text, rule.keywords)) {
@@ -131,6 +143,10 @@ bool LocalIntentDetector::DetectIntent(const std::string& text, IntentResult& re
             }
             if (rule.intent_type == IntentType::DISPLAY_MODE_CONTROL && (has_volume_context || has_brightness_context || has_theme_context) && !has_display_mode_context) {
                 ESP_LOGD(TAG, "跳过显示模式规则：检测到其他控制上下文");
+                continue;
+            }
+            if (rule.intent_type == IntentType::SUBTITLE_CONTROL && (has_volume_context || has_brightness_context || has_display_mode_context) && !has_subtitle_context) {
+                ESP_LOGD(TAG, "跳过字幕规则：检测到其他控制上下文");
                 continue;
             }
             
@@ -174,11 +190,11 @@ std::vector<IntentResult> LocalIntentDetector::DetectMultipleIntents(const std::
                               text.find("声音") != std::string::npos ||
                               text.find("volume") != std::string::npos);
     bool has_theme_context = (text.find("主题") != std::string::npos ||
-                             text.find("字体") != std::string::npos ||
-                             text.find("字幕") != std::string::npos);
+                             text.find("字体") != std::string::npos);
     bool has_display_mode_context = (text.find("模式") != std::string::npos ||
                                     text.find("壁纸") != std::string::npos ||
                                     text.find("皮肤") != std::string::npos);
+    bool has_subtitle_context = (text.find("字幕") != std::string::npos);
     
     // 跟踪已处理的意图类型，避免重复
     std::set<IntentType> detected_types;
@@ -206,6 +222,14 @@ std::vector<IntentResult> LocalIntentDetector::DetectMultipleIntents(const std::
             }
             if (rule.intent_type == IntentType::DISPLAY_MODE_CONTROL && (has_volume_context || has_brightness_context || has_theme_context) && !has_display_mode_context) {
                 ESP_LOGD(TAG, "跳过显示模式规则：检测到其他控制上下文");
+                continue;
+            }
+            if (rule.intent_type == IntentType::SUBTITLE_CONTROL && (has_volume_context || has_brightness_context || has_display_mode_context) && !has_subtitle_context) {
+                ESP_LOGD(TAG, "跳过字幕规则：检测到其他控制上下文");
+                continue;
+            }
+            if (rule.intent_type == IntentType::SUBTITLE_CONTROL && (has_volume_context || has_brightness_context || has_display_mode_context) && !has_subtitle_context) {
+                ESP_LOGD(TAG, "跳过字幕规则：检测到其他控制上下文");
                 continue;
             }
             
@@ -682,6 +706,35 @@ void LocalIntentDetector::ExtractDisplayModeParameters(const std::string& text, 
     result.action = "SetAnimatedMode";
     result.confidence = 0.7f;
     ESP_LOGI(TAG, "使用默认显示模式: 动态");
+}
+
+void LocalIntentDetector::ExtractSubtitleParameters(const std::string& text, IntentResult& result) {
+    // 检查打开字幕关键词
+    if (text.find("打开") != std::string::npos || 
+        text.find("开启") != std::string::npos ||
+        text.find("显示") != std::string::npos) {
+        result.action = "ShowSubtitle";
+        result.parameters["visible"] = "true";
+        result.confidence = 0.95f;
+        ESP_LOGI(TAG, "检测到打开字幕请求");
+        return;
+    }
+    
+    // 检查关闭字幕关键词
+    if (text.find("关闭") != std::string::npos || 
+        text.find("隐藏") != std::string::npos ||
+        text.find("关掉") != std::string::npos) {
+        result.action = "HideSubtitle";
+        result.parameters["visible"] = "false";
+        result.confidence = 0.95f;
+        ESP_LOGI(TAG, "检测到关闭字幕请求");
+        return;
+    }
+    
+    // 默认情况：切换字幕显示状态
+    result.action = "ToggleSubtitle";
+    result.confidence = 0.7f;
+    ESP_LOGI(TAG, "使用默认字幕操作: 切换");
 }
 
 } // namespace intent

@@ -1743,6 +1743,7 @@ private:
         thing_manager.AddThing(iot::CreateThing("Screen"));          // 添加屏幕设备
         thing_manager.AddThing(iot::CreateThing("RotateDisplay"));   // 添加旋转显示设备
         thing_manager.AddThing(iot::CreateThing("ImageDisplay"));    // 添加图片显示控制设备
+        thing_manager.AddThing(iot::CreateThing("SubtitleControl")); // 添加字幕控制设备
         // thing_manager.AddThing(iot::CreateThing("MusicPlayer"));     // 添加音乐播放器控制设备
         // 直接创建MusicPlayer实例（避免静态初始化顺序问题）
         thing_manager.AddThing(new iot::MusicPlayerThing());

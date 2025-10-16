@@ -16,6 +16,7 @@ enum class IntentType {
     BRIGHTNESS_CONTROL,
     THEME_CONTROL,
     DISPLAY_MODE_CONTROL,
+    SUBTITLE_CONTROL,
     // 可扩展更多意图类型
 };
 
@@ -99,6 +100,9 @@ private:
     
     // 显示模式控制参数提取器
     static void ExtractDisplayModeParameters(const std::string& text, IntentResult& result);
+    
+    // 字幕控制参数提取器
+    static void ExtractSubtitleParameters(const std::string& text, IntentResult& result);
 };
 
 } // namespace intent

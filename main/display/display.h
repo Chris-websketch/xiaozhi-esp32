@@ -29,6 +29,8 @@ public:
     virtual void SetIcon(const char* icon);
     virtual void SetTheme(const std::string& theme_name);
     virtual std::string GetTheme() { return current_theme_name_; }
+    virtual void SetSubtitleEnabled(bool enabled);
+    virtual bool IsSubtitleEnabled() const { return subtitle_enabled_; }
     virtual void SetIdle(bool status){};
     
     virtual void StartUpdateTimer();
@@ -69,6 +71,7 @@ protected:
     const char* battery_icon_ = nullptr;
     const char* network_icon_ = nullptr;
     bool muted_ = false;
+    bool subtitle_enabled_ = true;  // 字幕显示开关，默认启用
     std::string current_theme_name_;
 
     esp_timer_handle_t notification_timer_ = nullptr;

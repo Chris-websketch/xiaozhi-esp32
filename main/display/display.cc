@@ -256,6 +256,16 @@ void Display::SetChatMessage(const char* role, const char* content) {
     if (chat_message_label_ == nullptr) {
         return;
     }
+    
+    // 检查字幕是否启用
+    if (!subtitle_enabled_) {
+        // 字幕关闭时，隐藏chat_message_label_
+        lv_obj_add_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    
+    // 字幕启用时，显示并设置内容
+    lv_obj_clear_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(chat_message_label_, content);
 }
 
@@ -263,6 +273,23 @@ void Display::SetTheme(const std::string& theme_name) {
     current_theme_name_ = theme_name;
     Settings settings("display", true);
     settings.SetString("theme", theme_name);
+}
+
+void Display::SetSubtitleEnabled(bool enabled) {
+    subtitle_enabled_ = enabled;
+    
+    DisplayLockGuard lock(this);
+    if (chat_message_label_ == nullptr) {
+        return;
+    }
+    
+    if (enabled) {
+        // 启用字幕，显示标签
+        lv_obj_clear_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        // 禁用字幕，隐藏标签
+        lv_obj_add_flag(chat_message_label_, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void Display::CreateCanvas() {
