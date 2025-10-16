@@ -406,7 +406,7 @@ private:
         }
         #endif
         // 参数: cpu_max_freq, seconds_to_clock, seconds_to_dim, seconds_to_shutdown
-        // 30秒进入时钟模式，60秒降低亮度，5分钟关机
+        // 30秒进入时钟模式，60秒降低亮度到10%，5分钟降低亮度到1%（不关机）
         power_save_timer_ = new PowerSaveTimer(-1, 30, 60, (60*5));
         // power_save_timer_ = new PowerSaveTimer(-1, 5, 10, 20);//test
         
@@ -427,7 +427,7 @@ private:
         
         // 设置进入降低亮度模式的回调（60秒后触发）
         power_save_timer_->OnEnterDimMode([this]() {
-            ESP_LOGI(TAG, "Dimming backlight");
+            ESP_LOGI(TAG, "Dimming backlight to 10%%");
             GetBacklight()->SetBrightness(10);  // 降低亮度到10%
         });
         
@@ -443,21 +443,13 @@ private:
         power_save_timer_->OnExitSleepMode([this]() {
             SetPowerSaveMode(false);
         });
+        
+        // 5分钟后进入极低亮度模式（1%），不关机
         power_save_timer_->OnShutdownRequest([this]() {
-            ESP_LOGI(TAG, "Shutting down");
-            #ifndef __USER_GPIO_PWRDOWN__
-            ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(PWR_BUTTON_GPIO, 0));
-            ESP_ERROR_CHECK(rtc_gpio_pullup_en(PWR_BUTTON_GPIO));  // 内部上拉
-            ESP_ERROR_CHECK(rtc_gpio_pulldown_dis(PWR_BUTTON_GPIO));
-
-            // 设置亮度为1而不是完全关闭显示
-            GetBacklight()->SetBrightness(1);
-            esp_deep_sleep_start();
-            #else
-            rtc_gpio_set_level(PWR_EN_GPIO, 0);
-            rtc_gpio_hold_dis(PWR_EN_GPIO);
-            #endif
+            ESP_LOGI(TAG, "Entering ultra-low brightness mode (1%%)");
+            GetBacklight()->SetBrightness(1);  // 降低亮度到1%
         });
+        
         power_save_timer_->SetEnabled(true);
     }
 
