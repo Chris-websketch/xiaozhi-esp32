@@ -159,6 +159,12 @@ public:
     uint8_t bg_index = 1;               // 当前背景索引（1-4）
     lv_obj_t * bg_switch_btn = nullptr; // 切换背景的按钮
     lv_obj_t * subtitle_container_ = nullptr;  // 字幕容器，固定在底部三分之一区域
+    
+    // 字幕循环滚动相关
+    lv_timer_t* subtitle_scroll_timer_ = nullptr;  // 字幕滚动定时器
+    lv_coord_t subtitle_scroll_pos_ = 0;           // 当前滚动位置
+    lv_coord_t subtitle_max_scroll_ = 0;           // 最大滚动距离
+    bool subtitle_scrolling_ = false;              // 是否正在滚动
  
     // 构造函数：初始化LCD显示
     CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle, 
@@ -231,6 +237,39 @@ public:
         }, 100, this); // 100ms检查一次
     }
     
+    // 字幕循环滚动定时器回调函数（静态成员函数）
+    static void SubtitleScrollTimerCallback(lv_timer_t* timer) {
+        auto* display = static_cast<CustomLcdDisplay*>(timer->user_data);
+        if (!display || !display->subtitle_container_ || !display->chat_message_label_) {
+            return;
+        }
+        
+        // 获取当前滚动位置
+        lv_coord_t current_scroll = lv_obj_get_scroll_y(display->subtitle_container_);
+        
+        // 计算下一个滚动位置（每次滚动1像素）
+        lv_coord_t next_scroll = current_scroll + 1;
+        
+        // 如果到达底部，延迟2秒后重新从顶部开始
+        if (next_scroll >= display->subtitle_max_scroll_) {
+            // 已到达底部，暂停2秒
+            if (display->subtitle_scroll_pos_ == 0) {
+                display->subtitle_scroll_pos_ = 1;  // 标记已到达底部
+                lv_timer_set_period(timer, 2000);   // 延迟2秒
+                return;
+            } else {
+                // 延迟结束，重新从顶部开始
+                lv_obj_scroll_to_y(display->subtitle_container_, 0, LV_ANIM_OFF);
+                display->subtitle_scroll_pos_ = 0;
+                lv_timer_set_period(timer, 30);  // 恢复正常滚动速度（30ms = 约33fps）
+                return;
+            }
+        }
+        
+        // 正常滚动
+        lv_obj_scroll_to_y(display->subtitle_container_, next_scroll, LV_ANIM_OFF);
+    }
+    
     // 析构函数 - 清理定时器
     ~CustomLcdDisplay() {
         // 清理音乐播放器UI
@@ -239,6 +278,12 @@ public:
             g_music_player_instance = nullptr;  // 先清理全局指针
             music_player_ui_destroy(music_player_ui_);
             music_player_ui_ = nullptr;
+        }
+        
+        // 清理字幕滚动定时器
+        if (subtitle_scroll_timer_) {
+            lv_timer_del(subtitle_scroll_timer_);
+            subtitle_scroll_timer_ = nullptr;
         }
         
         // 清理字幕容器
@@ -644,6 +689,13 @@ public:
                 // 有实际内容，显示容器
                 lv_obj_clear_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
                 
+                // 停止之前的滚动定时器
+                if (subtitle_scroll_timer_ != nullptr) {
+                    lv_timer_del(subtitle_scroll_timer_);
+                    subtitle_scroll_timer_ = nullptr;
+                    subtitle_scrolling_ = false;
+                }
+                
                 // 强制更新LVGL布局，确保标签高度计算正确
                 lv_obj_update_layout(chat_message_label_);
                 lv_obj_update_layout(subtitle_container_);
@@ -652,19 +704,35 @@ public:
                 lv_coord_t label_height = lv_obj_get_height(chat_message_label_);
                 lv_coord_t container_height = lv_obj_get_content_height(subtitle_container_);
                 
-                // 如果标签高度大于容器高度，需要滚动到底部
+                // 如果标签高度大于容器高度，启动循环滚动
                 if (label_height > container_height) {
-                    // 计算需要滚动的距离：标签高度 - 容器可见高度
-                    lv_coord_t scroll_y = label_height - container_height;
-                    // 滚动到底部，显示最新内容
-                    lv_obj_scroll_to_y(subtitle_container_, scroll_y, LV_ANIM_ON);
+                    // 计算最大滚动距离
+                    subtitle_max_scroll_ = label_height - container_height;
+                    subtitle_scroll_pos_ = 0;
+                    subtitle_scrolling_ = true;
+                    
+                    // 先滚动到顶部
+                    lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
+                    
+                    // 创建滚动定时器，30ms触发一次（约33fps）
+                    subtitle_scroll_timer_ = lv_timer_create(SubtitleScrollTimerCallback, 30, this);
+                    
+                    ESP_LOGI(TAG, "启动字幕循环滚动: 标签高度=%ld, 容器高度=%ld, 最大滚动=%ld", 
+                             (long)label_height, (long)container_height, (long)subtitle_max_scroll_);
                 } else {
-                    // 内容未超出，滚动到顶部
-                    lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_ON);
+                    // 内容未超出，直接显示在顶部，不需要滚动
+                    lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
+                    subtitle_scrolling_ = false;
                 }
             } else {
-                // 内容为空或只有空白字符，隐藏容器
+                // 内容为空或只有空白字符，隐藏容器并停止滚动
                 lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+                
+                if (subtitle_scroll_timer_ != nullptr) {
+                    lv_timer_del(subtitle_scroll_timer_);
+                    subtitle_scroll_timer_ = nullptr;
+                    subtitle_scrolling_ = false;
+                }
             }
         }
         
@@ -757,7 +825,7 @@ public:
         // 在字幕容器内创建消息标签
         chat_message_label_ = lv_label_create(subtitle_container_);
         lv_label_set_text(chat_message_label_, "");
-        lv_obj_set_width(chat_message_label_, LV_HOR_RES * 0.7 - 20);  // 容器宽度减去左右padding（168-20=148px）
+        lv_obj_set_width(chat_message_label_, LV_HOR_RES * 0.85 - 20);  // 容器宽度减去左右padding（204-20=184px）
         lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);  // 自动换行
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(chat_message_label_, current_theme.text, 0);
@@ -1608,7 +1676,6 @@ private:
     }
 };
 
-
 // 自定义板卡类，继承自WifiBoard
 class CustomBoard : public WifiBoard {
 private:
@@ -1757,7 +1824,7 @@ private:
             
             // 管理定时检查定时器
             if (rotate_90_degrees) {
-                // 启动定时器，每3秒检查一次USB连接状态
+                // 启动定时器，每2秒检查一次USB连接状态
                 if (rotation_check_timer_ == nullptr) {
                     esp_timer_create_args_t timer_args = {
                         .callback = [](void* arg) {
@@ -1768,7 +1835,7 @@ private:
                                     ESP_LOGI(TAG, "USB已断开，自动恢复屏幕");
                                     self->RotateScreen(false);
                                     if (self->display_) {
-                                        self->display_->ShowCenterNotification("充电底座已断开\n屏幕已恢复正常", 3000);
+                                        self->display_->ShowCenterNotification("充电底座已断开\n屏幕已旋转显示", 3000);
                                     }
                                 }
                             }
@@ -1779,7 +1846,7 @@ private:
                         .skip_unhandled_events = true
                     };
                     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &rotation_check_timer_));
-                    ESP_ERROR_CHECK(esp_timer_start_periodic(rotation_check_timer_, 3000000));  // 3秒检查一次
+                    ESP_ERROR_CHECK(esp_timer_start_periodic(rotation_check_timer_, 2000000));  // 2秒检查一次
                     ESP_LOGI(TAG, "已启动旋转状态检查定时器");
                 }
             } else {
