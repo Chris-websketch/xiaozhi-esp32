@@ -158,6 +158,7 @@ public:
     lv_obj_t * bg_img2 = nullptr;       // 第二背景图像对象
     uint8_t bg_index = 1;               // 当前背景索引（1-4）
     lv_obj_t * bg_switch_btn = nullptr; // 切换背景的按钮
+    lv_obj_t * subtitle_container_ = nullptr;  // 字幕容器，固定在底部三分之一区域
  
     // 构造函数：初始化LCD显示
     CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle, 
@@ -238,6 +239,12 @@ public:
             g_music_player_instance = nullptr;  // 先清理全局指针
             music_player_ui_destroy(music_player_ui_);
             music_player_ui_ = nullptr;
+        }
+        
+        // 清理字幕容器
+        if (subtitle_container_) {
+            lv_obj_del(subtitle_container_);
+            subtitle_container_ = nullptr;
         }
         
         if (idle_timer_) {
@@ -339,6 +346,18 @@ public:
                 }
                 is_sleeping_ = false;
                 ESP_LOGI(TAG, "用户交互唤醒设备，恢复亮度到 %d", normal_brightness_);
+            }
+            
+            // 如果当前在时钟页面，切换回主页面
+            if (tabview_ != nullptr && tab1 != nullptr) {
+                lv_obj_t *tabview = lv_obj_get_parent(lv_obj_get_parent(tab1));
+                if (tabview) {
+                    uint32_t active_tab = lv_tabview_get_tab_act(tabview);
+                    if (active_tab == 1) {  // 当前在时钟页面(tab2, 索引1)
+                        ESP_LOGI(TAG, "用户交互唤醒，从时钟页面切换回主页面");
+                        lv_tabview_set_act(tabview, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
+                    }
+                }
             }
             return;
         } 
@@ -608,7 +627,46 @@ public:
             return;  // 如果聊天消息标签不存在，直接返回
         }
         lv_label_set_text(chat_message_label_, content);  // 设置消息文本
-        lv_obj_scroll_to_view_recursive(chat_message_label_, LV_ANIM_OFF);  // 滚动到可见区域
+        
+        // 根据内容决定是否显示字幕容器
+        if (subtitle_container_ != nullptr) {
+            // 检查内容是否为空或只包含空白字符
+            bool has_content = false;
+            if (content != nullptr && strlen(content) > 0) {
+                // 检查是否有非空白字符
+                std::string content_str(content);
+                if (content_str.find_first_not_of(" \t\n\r") != std::string::npos) {
+                    has_content = true;
+                }
+            }
+            
+            if (has_content) {
+                // 有实际内容，显示容器
+                lv_obj_clear_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+                
+                // 强制更新LVGL布局，确保标签高度计算正确
+                lv_obj_update_layout(chat_message_label_);
+                lv_obj_update_layout(subtitle_container_);
+                
+                // 获取标签的实际高度和容器的高度
+                lv_coord_t label_height = lv_obj_get_height(chat_message_label_);
+                lv_coord_t container_height = lv_obj_get_content_height(subtitle_container_);
+                
+                // 如果标签高度大于容器高度，需要滚动到底部
+                if (label_height > container_height) {
+                    // 计算需要滚动的距离：标签高度 - 容器可见高度
+                    lv_coord_t scroll_y = label_height - container_height;
+                    // 滚动到底部，显示最新内容
+                    lv_obj_scroll_to_y(subtitle_container_, scroll_y, LV_ANIM_ON);
+                } else {
+                    // 内容未超出，滚动到顶部
+                    lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_ON);
+                }
+            } else {
+                // 内容为空或只有空白字符，隐藏容器
+                lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
         
         // 如果当前处于WiFi配置模式，显示到时钟页面也显示提示
         if (std::string(content).find(Lang::Strings::CONNECT_TO_HOTSPOT) != std::string::npos) {
@@ -678,17 +736,36 @@ public:
         lv_obj_set_flex_flow(content_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(content_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_SPACE_EVENLY);
 
-        // 创建聊天消息标签 - 可以使用半透明背景
-        chat_message_label_ = lv_label_create(content_);
+        // 创建底部字幕容器 - 固定在屏幕下方，适配圆形屏幕
+        subtitle_container_ = lv_obj_create(tab1);
+        lv_obj_set_size(subtitle_container_, LV_HOR_RES * 0.85, LV_VER_RES * 0.35);  // 宽度85%，高度35%
+        lv_obj_align(subtitle_container_, LV_ALIGN_BOTTOM_MID, 0, 5);  // 底部居中对齐，向下偏移10像素
+        lv_obj_set_style_bg_color(subtitle_container_, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(subtitle_container_, LV_OPA_30, 0);  // 30%透明度，不完全遮挡背景
+        lv_obj_set_style_border_width(subtitle_container_, 2, 0);  // 2像素边框
+        lv_obj_set_style_border_color(subtitle_container_, lv_color_white(), 0);  // 白色边框
+        lv_obj_set_style_pad_all(subtitle_container_, 10, 0);  // 内边距10像素
+        lv_obj_set_style_radius(subtitle_container_, 10, 0);  // 10像素圆角
+        
+        // 启用垂直滚动
+        lv_obj_set_scroll_dir(subtitle_container_, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(subtitle_container_, LV_SCROLLBAR_MODE_OFF);  // 隐藏滚动条
+        
+        // 确保字幕容器在最上层，不被其他元素遮挡
+        lv_obj_move_foreground(subtitle_container_);
+        
+        // 在字幕容器内创建消息标签
+        chat_message_label_ = lv_label_create(subtitle_container_);
         lv_label_set_text(chat_message_label_, "");
-        lv_obj_set_width(chat_message_label_, LV_HOR_RES * 0.9);
-        lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(chat_message_label_, LV_HOR_RES * 0.7 - 20);  // 容器宽度减去左右padding（168-20=148px）
+        lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);  // 自动换行
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(chat_message_label_, current_theme.text, 0);
         lv_obj_set_style_bg_opa(chat_message_label_, LV_OPA_0, 0);  // 完全透明背景
-
-        // 添加以下代码，设置上边距增加文本显示下移
-        lv_obj_set_style_pad_top(chat_message_label_, 100, 0);  // 添加60像素的上边距
+        lv_obj_align(chat_message_label_, LV_ALIGN_TOP_MID, 0, 0);  // 在容器内顶部对齐
+        
+        // 默认隐藏字幕容器，直到有消息需要显示
+        lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
 
         /* 配置状态栏 */
         lv_obj_set_flex_flow(status_bar_, LV_FLEX_FLOW_ROW);  // 设置水平布局
