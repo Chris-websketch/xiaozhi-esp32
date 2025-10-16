@@ -17,27 +17,27 @@
 
 #define TAG "LcdDisplay"
 
-// Color definitions for dark theme
-#define DARK_BACKGROUND_COLOR       lv_color_hex(0x121212)     // Dark background
-#define DARK_TEXT_COLOR             lv_color_white()           // White text
-#define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // Slightly lighter than background
-#define DARK_USER_BUBBLE_COLOR      lv_color_hex(0x1A6C37)     // Dark green
-#define DARK_ASSISTANT_BUBBLE_COLOR lv_color_hex(0x333333)     // Dark gray
-#define DARK_SYSTEM_BUBBLE_COLOR    lv_color_hex(0x2A2A2A)     // Medium gray
-#define DARK_SYSTEM_TEXT_COLOR      lv_color_hex(0xAAAAAA)     // Light gray text
-#define DARK_BORDER_COLOR           lv_color_hex(0x333333)     // Dark gray border
-#define DARK_LOW_BATTERY_COLOR      lv_color_hex(0xFF0000)     // Red for dark mode
+// 暗色主题颜色定义
+#define DARK_BACKGROUND_COLOR       lv_color_white()     // 深色背景
+#define DARK_TEXT_COLOR             lv_color_black()           // 黑色文本
+#define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // 比背景稍亮
+#define DARK_USER_BUBBLE_COLOR      lv_color_hex(0x1A6C37)     // 深绿色
+#define DARK_ASSISTANT_BUBBLE_COLOR lv_color_hex(0x333333)     // 深灰色
+#define DARK_SYSTEM_BUBBLE_COLOR    lv_color_hex(0x2A2A2A)     // 中灰色
+#define DARK_SYSTEM_TEXT_COLOR      lv_color_hex(0xAAAAAA)     // 浅灰色文本
+#define DARK_BORDER_COLOR           lv_color_hex(0x333333)     // 深灰色边框
+#define DARK_LOW_BATTERY_COLOR      lv_color_hex(0xFF0000)     // 暗色模式红色
 
-// Color definitions for light theme
-#define LIGHT_BACKGROUND_COLOR       lv_color_white()           // White background
-#define LIGHT_TEXT_COLOR             lv_color_black()           // Black text
-#define LIGHT_CHAT_BACKGROUND_COLOR  lv_color_hex(0xE0E0E0)     // Light gray background
-#define LIGHT_USER_BUBBLE_COLOR      lv_color_hex(0x95EC69)     // WeChat green
-#define LIGHT_ASSISTANT_BUBBLE_COLOR lv_color_white()           // White
-#define LIGHT_SYSTEM_BUBBLE_COLOR    lv_color_hex(0xE0E0E0)     // Light gray
-#define LIGHT_SYSTEM_TEXT_COLOR      lv_color_hex(0x666666)     // Dark gray text
-#define LIGHT_BORDER_COLOR           lv_color_hex(0xE0E0E0)     // Light gray border
-#define LIGHT_LOW_BATTERY_COLOR      lv_color_black()           // Black for light mode
+// 亮色主题颜色定义
+#define LIGHT_BACKGROUND_COLOR       lv_color_hex(0x121212)           // 深色背景
+#define LIGHT_TEXT_COLOR             lv_color_white()           // 白色文本
+#define LIGHT_CHAT_BACKGROUND_COLOR  lv_color_hex(0xE0E0E0)     // 浅灰色背景
+#define LIGHT_USER_BUBBLE_COLOR      lv_color_hex(0x95EC69)     // 微信绿
+#define LIGHT_ASSISTANT_BUBBLE_COLOR lv_color_white()           // 白色
+#define LIGHT_SYSTEM_BUBBLE_COLOR    lv_color_hex(0xE0E0E0)     // 浅灰色
+#define LIGHT_SYSTEM_TEXT_COLOR      lv_color_hex(0x666666)     // 深灰色文本
+#define LIGHT_BORDER_COLOR           lv_color_hex(0xE0E0E0)     // 浅灰色边框
+#define LIGHT_LOW_BATTERY_COLOR      lv_color_black()           // 亮色模式黑色
 
 // Theme color structure
 struct ThemeColors {

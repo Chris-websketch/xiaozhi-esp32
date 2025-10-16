@@ -52,8 +52,14 @@ extern "C" {
 class CustomLcdDisplay : public SpiLcdDisplay
 {
 public:
-    // 允许访问container_用于层级管理
+    // 允许访问container_和状态栏元素用于层级管理和颜色设置
     using SpiLcdDisplay::container_;
+    using SpiLcdDisplay::status_bar_;
+    using SpiLcdDisplay::status_label_;
+    using SpiLcdDisplay::network_label_;
+    using SpiLcdDisplay::battery_label_;
+    using SpiLcdDisplay::mute_label_;
+    using SpiLcdDisplay::notification_label_;
     
     CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle,
                      esp_lcd_panel_handle_t panel_handle,
@@ -76,10 +82,31 @@ public:
         lv_obj_set_style_pad_left(status_bar_, LV_HOR_RES * 0.167, 0);
         lv_obj_set_style_pad_right(status_bar_, LV_HOR_RES * 0.167, 0);
         
-        // 将所有UI容器背景设置为完全透明，不遮挡图片显示
+        // 容器背景设置：状态栏白色不透明，消息区域透明以显示图片
         lv_obj_set_style_bg_opa(container_, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_bg_opa(status_bar_, LV_OPA_TRANSP, 0);
+        // 状态栏设置为白色背景，不透明
+        lv_obj_set_style_bg_color(status_bar_, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(status_bar_, LV_OPA_COVER, 0);
+        // content_设置为透明，不遮挡图片显示
         lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);
+        
+        // 反转文字颜色逻辑：白色主题用白色字体，黑色主题用黑色字体
+        // 获取当前主题并设置相应的文字颜色
+        std::string theme = GetTheme();
+        lv_color_t text_color = (theme == "dark") ? lv_color_black() : lv_color_white();
+        
+        // 设置状态栏本身的文字颜色
+        lv_obj_set_style_text_color(status_bar_, text_color, 0);
+        
+        // 设置状态栏所有子元素的文字颜色
+        if (status_label_) lv_obj_set_style_text_color(status_label_, text_color, 0);
+        if (network_label_) lv_obj_set_style_text_color(network_label_, text_color, 0);
+        if (battery_label_) lv_obj_set_style_text_color(battery_label_, text_color, 0);
+        if (mute_label_) lv_obj_set_style_text_color(mute_label_, text_color, 0);
+        if (notification_label_) lv_obj_set_style_text_color(notification_label_, text_color, 0);
+        
+        // 设置消息区域（content_）的文字颜色，与状态栏保持一致
+        lv_obj_set_style_text_color(content_, text_color, 0);
         
         // 将消息显示在屏幕底部，减少对图片的遮挡
         // content_是垂直布局(LV_FLEX_FLOW_COLUMN)：主轴=垂直，交叉轴=水平

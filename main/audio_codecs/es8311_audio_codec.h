@@ -19,7 +19,7 @@ private:
     esp_codec_dev_handle_t input_dev_ = nullptr;
     gpio_num_t pa_pin_ = GPIO_NUM_NC;
     // 优化：添加输入增益存储变量
-    float input_gain_db_ = 48.0f;
+    float input_gain_db_ = 30.0f;
 
     void CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din);
 
