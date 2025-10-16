@@ -352,14 +352,12 @@ private:
         });
         power_save_timer_->OnShutdownRequest([this]() {
             ESP_LOGI(TAG, "Entering deep sleep mode with minimal brightness");
-            rtc_gpio_set_level(GPIO_NUM_21, 0);
-            // 启用保持功能，确保睡眠期间电平不变
-            rtc_gpio_hold_en(GPIO_NUM_21);
-            // 不关闭显示屏，仅在非充电状态下降至1%
+            display_->SetChatMessage("system", "");
+            display_->SetEmotion("sleepy");
+            display_->ShowIdleClock();  // 显示待机时钟页面
             if (!is_charging_) {
-                GetBacklight()->SetBrightness(1);
+                GetBacklight()->SetBrightness(1);  // 降至1%（深度睡眠更低亮度）
             }
-            // 注意：这里不调用 esp_deep_sleep_start()，保持显示时钟运行
         });
         power_save_timer_->SetEnabled(true);
     }

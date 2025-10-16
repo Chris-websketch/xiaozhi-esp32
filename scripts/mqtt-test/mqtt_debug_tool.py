@@ -26,8 +26,8 @@ from paho.mqtt import client as mqtt_client
 
 
 # 默认配置 - 项目专用EMQX Cloud
-DEFAULT_BROKER = 'x6bf310e.ala.cn-hangzhou.emqxsl.cn'
-DEFAULT_PORT = 8883
+DEFAULT_BROKER = '110.42.35.132'
+DEFAULT_PORT = 1883
 DEFAULT_USERNAME = 'xiaoqiao'
 DEFAULT_PASSWORD = 'dzkj0000'
 DEVICE_CLIENT_ID = '719ae1ad-9f2c-4277-9c99-1a317a478979'  # ESP32设备ID
@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.port_input)
         
         self.ssl_checkbox = QCheckBox("SSL/TLS")
-        self.ssl_checkbox.setChecked(True)  # 默认启用SSL
+        self.ssl_checkbox.setChecked(False)  # 默认禁用SSL
         row1.addWidget(self.ssl_checkbox)
         
         self.auto_ack_checkbox = QCheckBox("自动回复ACK")

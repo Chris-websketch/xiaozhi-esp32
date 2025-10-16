@@ -29,7 +29,7 @@ bool MqttNotifier::LoadSettings() {
 
     // 使用内置的 EMQX 地址和测试账号作为默认值
     if (endpoint_.empty()) {
-        endpoint_ = "r10aea89.ala.dedicated.aliyun.emqxcloud.cn";
+        endpoint_ = "110.42.35.132";
     }
 
     auto global_client_id = SystemInfo::GetClientId();
@@ -112,7 +112,7 @@ bool MqttNotifier::ConnectInternal() {
 
 	ESP_LOGI(TAG, "Connecting to %s (client_id=%s, username=%s)", 
 		endpoint_.c_str(), client_id_.c_str(), username_.c_str());
-	if (!mqtt_->Connect(endpoint_, 8883, client_id_, username_, password_)) {
+	if (!mqtt_->Connect(endpoint_, 1883, client_id_, username_, password_)) {
 		ESP_LOGE(TAG, "Failed to connect");
 		delete mqtt_;
 		mqtt_ = nullptr;
