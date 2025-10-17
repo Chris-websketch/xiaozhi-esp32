@@ -184,6 +184,10 @@ Udp* WifiBoard::CreateUdp() {
     return new EspUdp();
 }
 
+AudioCodec* WifiBoard::GetAudioCodec() {
+    return Board::GetInstance().GetAudioCodec();
+}
+
 const char* WifiBoard::GetNetworkStateIcon() {
     if (wifi_config_mode_) {
         return FONT_AWESOME_WIFI;

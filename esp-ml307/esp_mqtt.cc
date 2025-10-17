@@ -34,6 +34,11 @@ bool EspMqtt::Connect(const std::string broker_address, int broker_port, const s
     mqtt_config.credentials.username = username.c_str();
     mqtt_config.credentials.authentication.password = password.c_str();
     mqtt_config.session.keepalive = keep_alive_seconds_;
+    ESP_LOGI(TAG, "MQTT keep-alive configured: %d seconds", keep_alive_seconds_);
+
+    // 启用自动重连机制
+    mqtt_config.network.reconnect_timeout_ms = 5000;  // 5秒后重连
+    mqtt_config.network.disable_auto_reconnect = false;  // 启用自动重连
 
     mqtt_client_handle_ = esp_mqtt_client_init(&mqtt_config);
     esp_mqtt_client_register_event(mqtt_client_handle_, MQTT_EVENT_ANY, [](void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -51,11 +56,19 @@ void EspMqtt::MqttEventCallback(esp_event_base_t base, int32_t event_id, void *e
     auto event = (esp_mqtt_event_t*)event_data;
     switch (event_id) {
     case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "MQTT connected successfully");
         xEventGroupSetBits(event_group_handle_, MQTT_CONNECTED_EVENT);
+        if (on_connected_callback_) {
+            on_connected_callback_();
+        }
         break;
     case MQTT_EVENT_DISCONNECTED:
         connected_ = false;
+        ESP_LOGW(TAG, "MQTT disconnected, auto-reconnect enabled");
         xEventGroupSetBits(event_group_handle_, MQTT_DISCONNECTED_EVENT);
+        if (on_disconnected_callback_) {
+            on_disconnected_callback_();
+        }
         break;
     case MQTT_EVENT_DATA: {
         auto topic = std::string(event->topic, event->topic_len);
@@ -74,15 +87,17 @@ void EspMqtt::MqttEventCallback(esp_event_base_t base, int32_t event_id, void *e
         break;
     }
     case MQTT_EVENT_BEFORE_CONNECT:
+        ESP_LOGI(TAG, "MQTT connecting...");
         break;
     case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI(TAG, "MQTT subscribed: msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_ERROR:
         xEventGroupSetBits(event_group_handle_, MQTT_ERROR_EVENT);
-        ESP_LOGI(TAG, "MQTT error occurred: %s", esp_err_to_name(event->error_handle->esp_tls_last_esp_err));
+        ESP_LOGE(TAG, "MQTT error occurred: %s", esp_err_to_name(event->error_handle->esp_tls_last_esp_err));
         break;
     default:
-        ESP_LOGI(TAG, "Unhandled event id %ld", event_id);
+        ESP_LOGD(TAG, "Unhandled event id %d", (int)event_id);
         break;
     }
 }
@@ -97,23 +112,44 @@ void EspMqtt::Disconnect() {
 
 bool EspMqtt::Publish(const std::string topic, const std::string payload, int qos) {
     if (!connected_) {
+        ESP_LOGW(TAG, "Publish failed: not connected");
         return false;
     }
-    return esp_mqtt_client_publish(mqtt_client_handle_, topic.c_str(), payload.data(), payload.size(), qos, 0) == 0;
+    int msg_id = esp_mqtt_client_publish(mqtt_client_handle_, topic.c_str(), payload.data(), payload.size(), qos, 0);
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "Publish to %s failed: msg_id=%d", topic.c_str(), msg_id);
+        return false;
+    }
+    ESP_LOGD(TAG, "Publish to %s success: msg_id=%d", topic.c_str(), msg_id);
+    return true;
 }
 
 bool EspMqtt::Subscribe(const std::string topic, int qos) {
     if (!connected_) {
+        ESP_LOGW(TAG, "Subscribe failed: not connected");
         return false;
     }
-    return esp_mqtt_client_subscribe_single(mqtt_client_handle_, topic.c_str(), qos) == 0;
+    int msg_id = esp_mqtt_client_subscribe_single(mqtt_client_handle_, topic.c_str(), qos);
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "Subscribe to %s (QoS=%d) failed: msg_id=%d", topic.c_str(), qos, msg_id);
+        return false;
+    }
+    ESP_LOGI(TAG, "Subscribe to %s (QoS=%d) success: msg_id=%d", topic.c_str(), qos, msg_id);
+    return true;
 }
 
 bool EspMqtt::Unsubscribe(const std::string topic) {
     if (!connected_) {
+        ESP_LOGW(TAG, "Unsubscribe failed: not connected");
         return false;
     }
-    return esp_mqtt_client_unsubscribe(mqtt_client_handle_, topic.c_str()) == 0;
+    int msg_id = esp_mqtt_client_unsubscribe(mqtt_client_handle_, topic.c_str());
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "Unsubscribe from %s failed: msg_id=%d", topic.c_str(), msg_id);
+        return false;
+    }
+    ESP_LOGI(TAG, "Unsubscribe from %s success: msg_id=%d", topic.c_str(), msg_id);
+    return true;
 }
 
 bool EspMqtt::IsConnected() {

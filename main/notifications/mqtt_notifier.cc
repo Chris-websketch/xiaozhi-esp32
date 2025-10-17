@@ -89,7 +89,7 @@ bool MqttNotifier::ConnectInternal() {
 		mqtt_ = nullptr;
 	}
 	mqtt_ = Board::GetInstance().CreateMqtt();
-	mqtt_->SetKeepAlive(90);
+	mqtt_->SetKeepAlive(15);  // 15秒，低于服务器~20秒超时，避免断连
 
 	mqtt_->OnMessage([this](const std::string& topic, const std::string& payload) {
 		ESP_LOGI(TAG, "MQTT message received: topic=%s, payload=%s", topic.c_str(), payload.c_str());
@@ -233,9 +233,13 @@ bool MqttNotifier::ConnectInternal() {
 
 	// 显式订阅下行主题，确保服务端推送能到达
 	if (!downlink_topic_.empty()) {
-		// 可靠控制：订阅使用 QoS 2
-		bool sub_ok = mqtt_->Subscribe(downlink_topic_, 2);
-		ESP_LOGI(TAG, "Subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
+		// 使用 QoS 1（部分服务器可能不支持QoS 2）
+		bool sub_ok = mqtt_->Subscribe(downlink_topic_, 1);
+		if (sub_ok) {
+			ESP_LOGI(TAG, "Successfully subscribed to %s", downlink_topic_.c_str());
+		} else {
+			ESP_LOGW(TAG, "Failed to subscribe to %s, will retry on reconnect", downlink_topic_.c_str());
+		}
 	}
 	
 	ESP_LOGI(TAG, "MQTT notifier connected and ready");

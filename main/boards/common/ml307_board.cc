@@ -87,6 +87,10 @@ Udp* Ml307Board::CreateUdp() {
     return new Ml307Udp(modem_, 0);
 }
 
+AudioCodec* Ml307Board::GetAudioCodec() {
+    return Board::GetInstance().GetAudioCodec();
+}
+
 const char* Ml307Board::GetNetworkStateIcon() {
     if (!modem_.network_ready()) {
         return FONT_AWESOME_SIGNAL_OFF;

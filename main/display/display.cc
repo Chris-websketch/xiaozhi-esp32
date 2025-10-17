@@ -147,6 +147,7 @@ void Display::ShowCenterNotification(const char* notification, int duration_ms) 
     ESP_LOGI(TAG, "Setting notification text and showing popup");
     lv_label_set_text(center_notification_label_, notification);
     lv_obj_clear_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(center_notification_bg_);  // 强制移到最前层
 
     esp_timer_stop(center_notification_timer_);
     ESP_ERROR_CHECK(esp_timer_start_once(center_notification_timer_, duration_ms * 1000));

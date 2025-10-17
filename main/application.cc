@@ -1366,6 +1366,17 @@ void Application::SetDeviceState(DeviceState state) {
         {
             ESP_LOGI(TAG, "设备进入 idle 状态，调用 display->SetIdle(true)");
             display->SetIdle(true);
+            
+            // WiFi模式下禁用省电模式，保持网络连接稳定（避免WebSocket/MQTT超时断开）
+            // 4G模式不需要此操作，ML307模块有自主省电管理
+            std::string board_type = board.GetBoardType();
+            if (board_type == "wifi") {
+                board.SetPowerSaveMode(false);
+                ESP_LOGI(TAG, "WiFi模式idle状态：禁用省电，保持连接");
+            } else {
+                ESP_LOGI(TAG, "%s模式idle状态：省电由模块自主管理", board_type.c_str());
+            }
+            
             // 清理聊天内容，但保留状态栏信息（显示待命）
             display->SetStatus(Lang::Strings::STANDBY);
             display->SetEmotion("neutral");

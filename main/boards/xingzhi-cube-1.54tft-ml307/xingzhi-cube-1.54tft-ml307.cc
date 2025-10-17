@@ -1,4 +1,4 @@
-#include "ml307_board.h"
+#include "dual_network_board.h"
 #include "audio_codecs/no_audio_codec.h"
 #include "display/lcd_display.h"
 #include "system_reset.h"
@@ -305,7 +305,7 @@ private:
     }
 };
 
-class XINGZHI_CUBE_1_54TFT_ML307 : public Ml307Board {
+class XINGZHI_CUBE_1_54TFT_ML307 : public DualNetworkBoard {
 private:
     Button boot_button_;
     Button volume_up_button_;
@@ -378,6 +378,22 @@ private:
             power_save_timer_->WakeUp();
             auto& app = Application::GetInstance();
             app.ToggleChatState();
+        });
+
+        boot_button_.OnLongPress([this]() {
+            power_save_timer_->WakeUp();
+            auto& app = Application::GetInstance();
+            auto state = app.GetDeviceState();
+            ESP_LOGI(TAG, "BOOT 长按触发，当前状态: %d", state);
+            
+            if (state == kDeviceStateStarting ||
+                state == kDeviceStateWifiConfiguring ||
+                state == kDeviceStateIdle) {
+                ESP_LOGI(TAG, "状态允许切换，开始执行网络切换");
+                SwitchNetworkType();
+            } else {
+                ESP_LOGW(TAG, "当前状态 %d 不允许切换网络", state);
+            }
         });
 
         volume_up_button_.OnClick([this]() {
@@ -564,7 +580,7 @@ private:
 
 public:
     XINGZHI_CUBE_1_54TFT_ML307() :
-        Ml307Board(ML307_TX_PIN, ML307_RX_PIN, 4096),
+        DualNetworkBoard(ML307_TX_PIN, ML307_RX_PIN, GPIO_NUM_NC),
         boot_button_(BOOT_BUTTON_GPIO),
         volume_up_button_(VOLUME_UP_BUTTON_GPIO),
         volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
@@ -610,7 +626,7 @@ public:
         if (!enabled) {
             power_save_timer_->WakeUp();
         }
-        Ml307Board::SetPowerSaveMode(enabled);
+        DualNetworkBoard::SetPowerSaveMode(enabled);
     }
 };
 
