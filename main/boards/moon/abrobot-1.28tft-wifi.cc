@@ -675,6 +675,13 @@ public:
         
         // 根据内容决定是否显示字幕容器
         if (subtitle_container_ != nullptr) {
+            // 检查字幕是否启用
+            if (!subtitle_enabled_) {
+                // 字幕已禁用，隐藏容器
+                lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+                return;
+            }
+            
             // 检查内容是否为空或只包含空白字符
             bool has_content = false;
             if (content != nullptr && strlen(content) > 0) {
@@ -686,7 +693,7 @@ public:
             }
             
             if (has_content) {
-                // 有实际内容，显示容器
+                // 有实际内容且字幕已启用，显示容器
                 lv_obj_clear_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
                 
                 // 停止之前的滚动定时器
@@ -751,6 +758,34 @@ public:
             lv_obj_set_style_radius(wifi_hint, 10, 0);
             lv_obj_set_style_pad_all(wifi_hint, 10, 0);
         }
+    }
+
+    // 重写字幕启用/禁用方法，同时控制容器的显示
+    void SetSubtitleEnabled(bool enabled) override {
+        // 调用基类方法设置状态
+        Display::SetSubtitleEnabled(enabled);
+        
+        DisplayLockGuard lock(this);
+        if (subtitle_container_ == nullptr) {
+            return;
+        }
+        
+        if (enabled) {
+            // 启用字幕 - 容器的显示由SetChatMessage根据内容决定
+            // 这里不做任何操作，让SetChatMessage来控制
+        } else {
+            // 禁用字幕 - 隐藏容器并停止滚动
+            lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+            
+            // 停止滚动定时器
+            if (subtitle_scroll_timer_ != nullptr) {
+                lv_timer_del(subtitle_scroll_timer_);
+                subtitle_scroll_timer_ = nullptr;
+                subtitle_scrolling_ = false;
+            }
+        }
+        
+        ESP_LOGI(TAG, "字幕容器状态已设置为: %s", enabled ? "启用" : "禁用");
     }
 
     // 设置第一个标签页（主界面）
