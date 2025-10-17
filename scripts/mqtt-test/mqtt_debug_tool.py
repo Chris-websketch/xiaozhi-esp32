@@ -25,9 +25,9 @@ from PySide6.QtGui import QFont
 from paho.mqtt import client as mqtt_client
 
 
-# 默认配置 - 项目专用EMQX Cloud
-DEFAULT_BROKER = 'x6bf310e.ala.cn-hangzhou.emqxsl.cn'
-DEFAULT_PORT = 8883
+# 默认配置 - 项目专用MQTT服务器
+DEFAULT_BROKER = '110.42.35.132'
+DEFAULT_PORT = 1883
 DEFAULT_USERNAME = 'xiaoqiao'
 DEFAULT_PASSWORD = 'dzkj0000'
 DEVICE_CLIENT_ID = '719ae1ad-9f2c-4277-9c99-1a317a478979'  # ESP32设备ID

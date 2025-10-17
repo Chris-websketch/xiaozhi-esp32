@@ -2189,7 +2189,7 @@ const DeviceConfig& Application::GetDeviceConfig() const {
         Settings mqtt_settings("mqtt", false);
         
         // 读取MQTT服务器配置
-        std::string endpoint = mqtt_settings.GetString("endpoint", "x6bf310e.ala.cn-hangzhou.emqxsl.cn");
+        std::string endpoint = mqtt_settings.GetString("endpoint", "110.42.35.132");
         
         // 解析主机和端口
         size_t colon_pos = endpoint.find(':');
@@ -2198,7 +2198,7 @@ const DeviceConfig& Application::GetDeviceConfig() const {
             device_config_.mqtt_port = std::stoi(endpoint.substr(colon_pos + 1));
         } else {
             device_config_.mqtt_host = endpoint;
-            device_config_.mqtt_port = 8883; // 默认MQTT over TLS端口
+            device_config_.mqtt_port = 1883; // 默认MQTT端口（非SSL）
         }
         
         // 读取认证信息

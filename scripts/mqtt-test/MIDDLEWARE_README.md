@@ -27,11 +27,11 @@ pip install -r requirements.txt
 编辑 `alarm_mqtt_middleware.py` 中的配置项：
 
 ```python
-MQTT_BROKER = "x6bf310e.ala.cn-hangzhou.emqxsl.cn"
-MQTT_PORT = 8883
+MQTT_BROKER = "110.42.35.132"
+MQTT_PORT = 1883
 MQTT_USERNAME = "xiaoqiao"
 MQTT_PASSWORD = "dzkj0000"
-MQTT_USE_SSL = True
+MQTT_USE_SSL = False
 MQTT_CA_CERT = "emqx_ca.crt"
 
 HTTP_PORT = 6999
