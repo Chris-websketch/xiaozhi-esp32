@@ -27,9 +27,9 @@ bool MqttNotifier::LoadSettings() {
 	password_ = settings.GetString("password");
 	downlink_topic_ = settings.GetString("downlink_topic");
 
-	// 使用内置的 EMQX 地址和测试账号作为默认值
+	// 使用内置的 MQTT 服务器地址和测试账号作为默认值
 	if (endpoint_.empty()) {
-		endpoint_ = "x6bf310e.ala.cn-hangzhou.emqxsl.cn";
+		endpoint_ = "110.42.35.132";
 	}
 	if (client_id_.empty()) {
 	#ifdef CONFIG_WEBSOCKET_CLIENT_ID
@@ -107,7 +107,7 @@ bool MqttNotifier::ConnectInternal() {
 
 	ESP_LOGI(TAG, "Connecting to %s (client_id=%s, username=%s)", 
 		endpoint_.c_str(), client_id_.c_str(), username_.c_str());
-	if (!mqtt_->Connect(endpoint_, 8883, client_id_, username_, password_)) {
+	if (!mqtt_->Connect(endpoint_, 1883, client_id_, username_, password_)) {
 		ESP_LOGE(TAG, "Failed to connect");
 		delete mqtt_;
 		mqtt_ = nullptr;

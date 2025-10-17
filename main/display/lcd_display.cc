@@ -14,7 +14,7 @@
 #define TAG "LcdDisplay"
 
 // 暗色主题颜色定义
-#define DARK_BACKGROUND_COLOR       lv_color_white()     // 深色背景
+#define DARK_BACKGROUND_COLOR       lv_color_white()     // 白色背景
 #define DARK_TEXT_COLOR             lv_color_black()           // 黑色文本
 #define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0x1E1E1E)     // 比背景稍亮
 #define DARK_USER_BUBBLE_COLOR      lv_color_hex(0x1A6C37)     // 深绿色
