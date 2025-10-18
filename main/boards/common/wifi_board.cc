@@ -65,9 +65,22 @@ void WifiBoard::EnterWifiConfigMode() {
     // 播报配置 WiFi 的提示
     application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_CCC_PW);
     
+    // 显示WiFi配网二维码
+    auto display = Board::GetInstance().GetDisplay();
+    if (display && display->width() > 0) {
+        // 生成WiFi二维码内容（WiFi标准格式，手机扫码可自动连接AP）
+        std::string qr_data = "WIFI:T:nopass;S:";
+        qr_data += wifi_ap.GetSsid();
+        qr_data += ";P:;;";
+        
+        // 显示二维码（自适应大小和位置）
+        display->ShowQRCode(qr_data.c_str());
+        
+        ESP_LOGI(TAG, "WiFi QR Code displayed: %s", qr_data.c_str());
+    }
+    
 #if CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
     // 启动声波配网任务作为传统配网的补充
-    auto display = Board::GetInstance().GetDisplay();
     auto codec = Board::GetInstance().GetAudioCodec();
     int input_channels = 1;
     if (codec) {

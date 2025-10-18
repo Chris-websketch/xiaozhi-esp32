@@ -99,6 +99,12 @@ Display::~Display() {
     if( low_battery_popup_ != nullptr ) {
         lv_obj_del(low_battery_popup_);
     }
+    if (qrcode_obj_ != nullptr) {
+        lv_obj_del(qrcode_obj_);
+    }
+    if (qrcode_hint_label_ != nullptr) {
+        lv_obj_del(qrcode_hint_label_);
+    }
     if (pm_lock_ != nullptr) {
         esp_pm_lock_delete(pm_lock_);
     }
@@ -402,4 +408,128 @@ void Display::DrawImageOnCanvas(int x, int y, int width, int height, const uint8
     lv_obj_move_foreground(canvas_);
     
     ESP_LOGI("Display", "Image drawn on canvas at x=%d, y=%d, w=%d, h=%d", x, y, width, height);
+}
+
+void Display::ShowQRCode(const char* data, int x, int y, int size) {
+    DisplayLockGuard lock(this);
+    
+    if (!lock.IsLocked()) {
+        ESP_LOGE(TAG, "Failed to lock display for QR code");
+        return;
+    }
+    
+#if LV_USE_QRCODE
+    // 如果已存在二维码对象，先销毁
+    if (qrcode_obj_ != nullptr) {
+        lv_obj_del(qrcode_obj_);
+        qrcode_obj_ = nullptr;
+    }
+    
+    // 计算合适的二维码大小（缩小版本）
+    int qr_size = size;
+    if (qr_size <= 0) {
+        // 根据屏幕尺寸自动计算
+        int min_dimension = (width_ < height_) ? width_ : height_;
+        if (min_dimension >= 240) {
+            qr_size = 90;  // 大屏：90x90（原120，缩小25%）
+        } else if (min_dimension >= 160) {
+            qr_size = 75;  // 中屏：75x75（原100，缩小25%）
+        } else {
+            qr_size = min_dimension * 50 / 100;  // 小屏：占50%（原70%）
+        }
+    }
+    
+    // 创建二维码对象
+    lv_obj_t* screen = lv_screen_active();
+    qrcode_obj_ = lv_qrcode_create(screen);
+    
+    if (qrcode_obj_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to create QR code object");
+        return;
+    }
+    
+    // 设置二维码大小
+    lv_qrcode_set_size(qrcode_obj_, qr_size);
+    
+    // 设置颜色（黑白）
+    lv_qrcode_set_dark_color(qrcode_obj_, lv_color_black());
+    lv_qrcode_set_light_color(qrcode_obj_, lv_color_white());
+    
+    // 更新二维码数据
+    lv_result_t result = lv_qrcode_update(qrcode_obj_, data, strlen(data));
+    if (result != LV_RESULT_OK) {
+        ESP_LOGE(TAG, "Failed to update QR code data");
+        lv_obj_del(qrcode_obj_);
+        qrcode_obj_ = nullptr;
+        return;
+    }
+    
+    // 设置位置
+    if (x < 0 || y < 0) {
+        // 水平居中，垂直向上偏移（减少偏移量，使二维码更靠下）
+        int pos_x = (width_ - qr_size) / 2;
+        int pos_y = (height_ - qr_size) / 2 - 25;  // 向上移动15像素（原30像素）
+        // 确保不超出屏幕顶部
+        if (pos_y < 25) {
+            pos_y = 25;  // 留出顶部状态栏空间
+        }
+        lv_obj_set_pos(qrcode_obj_, pos_x, pos_y);
+    } else {
+        lv_obj_set_pos(qrcode_obj_, x, y);
+    }
+    
+    // 添加白色边框
+    lv_obj_set_style_border_color(qrcode_obj_, lv_color_white(), 0);
+    lv_obj_set_style_border_width(qrcode_obj_, 5, 0);
+    
+    // 创建提示文字标签（在二维码上方）
+    if (qrcode_hint_label_ != nullptr) {
+        lv_obj_del(qrcode_hint_label_);
+        qrcode_hint_label_ = nullptr;
+    }
+    
+    qrcode_hint_label_ = lv_label_create(screen);
+    if (qrcode_hint_label_ != nullptr) {
+        lv_label_set_text(qrcode_hint_label_, "请使用手机相机扫码");
+        lv_obj_set_style_text_color(qrcode_hint_label_, lv_color_black(), 0);  // 改为黑色
+        lv_obj_set_style_text_align(qrcode_hint_label_, LV_TEXT_ALIGN_CENTER, 0);
+        
+        // 禁止换行，强制在一行显示
+        lv_label_set_long_mode(qrcode_hint_label_, LV_LABEL_LONG_CLIP);
+        
+        // 居中对齐，放在二维码上方紧贴
+        lv_obj_set_width(qrcode_hint_label_, LV_SIZE_CONTENT);  // 自动宽度，根据内容
+        lv_obj_align_to(qrcode_hint_label_, qrcode_obj_, LV_ALIGN_OUT_TOP_MID, 0, 9);
+        
+        // 确保在顶层
+        lv_obj_move_foreground(qrcode_hint_label_);
+        
+        ESP_LOGI(TAG, "QR code hint label created");
+    }
+    
+    // 确保二维码在顶层
+    lv_obj_move_foreground(qrcode_obj_);
+    
+    ESP_LOGI(TAG, "QR code displayed: size=%d, data=%s", qr_size, data);
+#else
+    ESP_LOGW(TAG, "QR code support not enabled (LV_USE_QRCODE=0)");
+#endif
+}
+
+void Display::HideQRCode() {
+    DisplayLockGuard lock(this);
+    
+#if LV_USE_QRCODE
+    if (qrcode_obj_ != nullptr) {
+        lv_obj_del(qrcode_obj_);
+        qrcode_obj_ = nullptr;
+        ESP_LOGI(TAG, "QR code hidden");
+    }
+    
+    if (qrcode_hint_label_ != nullptr) {
+        lv_obj_del(qrcode_hint_label_);
+        qrcode_hint_label_ = nullptr;
+        ESP_LOGI(TAG, "QR code hint label hidden");
+    }
+#endif
 }

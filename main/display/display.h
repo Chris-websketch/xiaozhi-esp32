@@ -39,6 +39,9 @@ public:
     virtual void DestroyCanvas();
     virtual void DrawImageOnCanvas(int x, int y, int width, int height, const uint8_t* img_data);
     virtual bool HasCanvas() { return canvas_ != nullptr; }
+    
+    virtual void ShowQRCode(const char* data, int x = -1, int y = -1, int size = 0);
+    virtual void HideQRCode();
 
     inline int width() const { return width_; }
     inline int height() const { return height_; }
@@ -69,6 +72,8 @@ protected:
     lv_obj_t* center_notification_label_ = nullptr;   // 中央弹窗文本标签
     lv_obj_t* canvas_ = nullptr;
     void* canvas_buffer_ = nullptr;
+    lv_obj_t* qrcode_obj_ = nullptr;  // 二维码对象
+    lv_obj_t* qrcode_hint_label_ = nullptr;  // 二维码提示文字
     const char* battery_icon_ = nullptr;
     const char* network_icon_ = nullptr;
     bool muted_ = false;

@@ -10,7 +10,8 @@ dependencies:
   78/esp_lcd_nv3023: "~1.0.0"
   # 78/esp-wifi-connect: "~2.3.1"
   esp-wifi-connect:
-    git: "https://github.com/Chris-websketch/78__esp-wifi-connect.git"
+    # git: "https://github.com/Chris-websketch/78__esp-wifi-connect.git"
+    path: "../esp-wifi-connect"
   78/esp-opus: "^1.0.5"
   78/esp-opus-encoder: "~2.3.0"
   78/esp-ml307: "~1.8.1"
