@@ -103,6 +103,10 @@ public:
     // 图片下载模式控制方法
     void PauseAudioProcessing();  // 暂停音频处理
     void ResumeAudioProcessing(); // 恢复音频处理
+    
+    // 超级省电模式控制方法
+    void StopClockTimer();        // 停止时钟定时器（用于超级省电模式）
+    void StartClockTimer();       // 启动时钟定时器（从超级省电模式恢复）
 
     // 检查音频队列是否为空（用于判断开机提示音是否播放完成）
     bool IsAudioQueueEmpty() const;

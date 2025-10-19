@@ -1657,6 +1657,20 @@ void Application::ResumeAudioProcessing() {
     }
 }
 
+void Application::StopClockTimer() {
+    if (clock_timer_handle_) {
+        esp_timer_stop(clock_timer_handle_);
+        ESP_LOGI(TAG, "时钟定时器已停止（超级省电模式）");
+    }
+}
+
+void Application::StartClockTimer() {
+    if (clock_timer_handle_) {
+        esp_timer_start_periodic(clock_timer_handle_, 1000000);  // 每1秒
+        ESP_LOGI(TAG, "时钟定时器已启动");
+    }
+}
+
 bool Application::IsAudioQueueEmpty() const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex_));
     return audio_decode_queue_.empty();

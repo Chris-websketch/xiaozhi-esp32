@@ -75,59 +75,13 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-            background: #0a0a0a;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
             color: var(--text-primary);
             line-height: 1.6;
             overflow: hidden;
             animation: fadeIn 0.8s ease-out;
             position: relative;
-        }
-
-        /* 动态极光背景 */
-        body::before,
-        body::after {
-            content: '';
-            position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            opacity: 0.8;
-            animation: aurora var(--duration-slower) ease-in-out infinite;
-            pointer-events: none;
-        }
-
-        body::before {
-            background: var(--aurora-gradient-1);
-            animation-duration: 25s;
-            animation-delay: 0s;
-        }
-
-        body::after {
-            background: var(--aurora-gradient-2);
-            animation-duration: 30s;
-            animation-delay: -5s;
-            opacity: 0.6;
-        }
-
-        @keyframes aurora {
-            0%, 100% {
-                transform: rotate(0deg) scale(1) translateX(0);
-                filter: hue-rotate(0deg);
-            }
-            25% {
-                transform: rotate(45deg) scale(1.1) translateX(10%);
-                filter: hue-rotate(20deg);
-            }
-            50% {
-                transform: rotate(90deg) scale(1.2) translateX(-10%);
-                filter: hue-rotate(-20deg);
-            }
-            75% {
-                transform: rotate(135deg) scale(1.1) translateX(5%);
-                filter: hue-rotate(10deg);
-            }
         }
 
         @keyframes fadeIn {
@@ -150,59 +104,15 @@
         }
 
         .success-card {
-            background: var(--glass-gradient);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            background: rgba(30, 30, 50, 0.9);
             border: 1px solid var(--card-border);
             border-radius: var(--border-radius);
             padding: var(--spacing-xl);
-            box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            box-shadow: var(--shadow-card);
             max-width: 400px;
             width: 100%;
-            animation: slideUp 0.8s var(--ease-out-back) 0.3s both;
+            animation: slideUp 0.8s ease-out 0.3s both;
             position: relative;
-            overflow: hidden;
-            transform-style: preserve-3d;
-        }
-
-        /* 卡片光晕效果 */
-        .success-card::before {
-            content: '';
-            position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: var(--success-gradient);
-            border-radius: var(--border-radius);
-            opacity: 0.3;
-            z-index: -1;
-            filter: blur(15px);
-            animation: successGlow 3s ease-in-out infinite;
-        }
-
-        @keyframes successGlow {
-            0%, 100% { opacity: 0.3; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.02); }
-        }
-
-        /* 卡片内部光效 */
-        .success-card::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
-            opacity: 0.5;
-            transform: translateX(-100%);
-            animation: shimmer 3s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
         }
 
         @keyframes slideUp {
@@ -241,11 +151,10 @@
         }
 
         .checkmark {
-            width: 120px;
-            height: 120px;
+            width: 100px;
+            height: 100px;
             margin: 0 auto;
             position: relative;
-            filter: drop-shadow(0 0 30px var(--success-glow));
         }
 
         .checkmark__circle {
@@ -255,8 +164,7 @@
             stroke-miterlimit: 10;
             stroke: var(--success-color);
             fill: var(--success-light);
-            animation: stroke-circle 0.8s cubic-bezier(0.65, 0, 0.45, 1) 1.2s both;
-            filter: drop-shadow(0 0 15px var(--success-glow));
+            animation: stroke-circle 0.6s ease-out 0.5s both;
         }
 
         .checkmark__check {
@@ -265,34 +173,7 @@
             stroke-dashoffset: 48;
             stroke-width: 3;
             stroke: var(--success-color);
-            animation: stroke-check 0.5s cubic-bezier(0.65, 0, 0.45, 1) 2s both;
-            filter: drop-shadow(0 0 10px var(--success-glow));
-        }
-
-        /* 成功图标光环 */
-        .checkmark-container::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 150px;
-            height: 150px;
-            margin: -75px 0 0 -75px;
-            border-radius: 50%;
-            background: radial-gradient(circle, var(--success-glow) 0%, transparent 70%);
-            animation: pulseRing 2s ease-out 2.5s infinite;
-            opacity: 0;
-        }
-
-        @keyframes pulseRing {
-            0% {
-                transform: scale(0.8);
-                opacity: 0.8;
-            }
-            100% {
-                transform: scale(1.5);
-                opacity: 0;
-            }
+            animation: stroke-check 0.4s ease-out 1s both;
         }
 
         @keyframes stroke-circle {
@@ -317,29 +198,9 @@
             font-size: 32px;
             font-weight: 700;
             margin-bottom: var(--spacing-sm);
-            color: var(--text-primary); /* 后备颜色 */
-            animation: slideIn 0.6s ease-out 1.5s both, titleGlow 3s ease-in-out infinite;
+            color: var(--text-primary);
+            animation: slideIn 0.6s ease-out 0.8s both;
             position: relative;
-            text-shadow: 0 0 30px var(--success-glow);
-        }
-
-        /* 支持渐变文字的浏览器使用渐变效果 */
-        @supports (-webkit-background-clip: text) {
-            .success-title {
-                background: linear-gradient(135deg, #ffffff 0%, var(--success-color) 50%, var(--accent-color) 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-        }
-
-        @keyframes titleGlow {
-            0%, 100% { 
-                filter: brightness(1) drop-shadow(0 0 20px var(--success-glow));
-            }
-            50% { 
-                filter: brightness(1.2) drop-shadow(0 0 40px var(--success-glow));
-            }
         }
 
         .success-message {
@@ -361,33 +222,13 @@
         }
 
         .countdown-container {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.05) 100%);
+            background: rgba(30, 30, 50, 0.6);
             border: 1px solid var(--card-border);
             border-radius: var(--border-radius-small);
             padding: var(--spacing-md);
             margin-bottom: var(--spacing-md);
-            animation: slideIn 0.6s ease-out 1.9s both;
+            animation: slideIn 0.6s ease-out 1s both;
             position: relative;
-            overflow: hidden;
-            box-shadow: var(--inner-shadow), 0 4px 20px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            transition: all 0.5s ease-out;
-        }
-
-        .countdown-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            animation: sweep 2s ease-out 2.5s;
-        }
-
-        @keyframes sweep {
-            to { left: 100%; }
         }
 
         .countdown-text {
@@ -397,79 +238,29 @@
         }
 
         .countdown-number {
-            font-size: 56px;
+            font-size: 48px;
             font-weight: 700;
-            color: var(--success-color); /* 后备颜色 */
-            text-shadow: 0 0 40px var(--success-glow);
-            animation: pulse 1s infinite, numberGlow 2s ease-in-out infinite;
+            color: var(--success-color);
             display: block;
             margin: var(--spacing-sm) 0;
             position: relative;
-            filter: drop-shadow(0 0 20px var(--success-glow));
-        }
-
-        /* 支持渐变文字的浏览器使用渐变效果 */
-        @supports (-webkit-background-clip: text) {
-            .countdown-number {
-                background: linear-gradient(135deg, var(--success-color) 0%, var(--accent-color) 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-        }
-
-        @keyframes numberGlow {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-
-        @keyframes pulse {
-            0%, 100% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% { 
-                transform: scale(1.1);
-                opacity: 0.8;
-            }
         }
 
         .progress-bar {
             width: 100%;
-            height: 6px;
+            height: 4px;
             background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
+            border-radius: 2px;
             overflow: hidden;
             margin-top: var(--spacing-sm);
-            box-shadow: var(--inner-shadow);
-            position: relative;
         }
 
         .progress-fill {
             height: 100%;
-            background: var(--success-gradient);
-            border-radius: 3px;
+            background: var(--success-color);
+            border-radius: 2px;
             animation: progress 3s linear;
             transform-origin: left;
-            box-shadow: 0 0 10px var(--success-glow);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .progress-fill::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-            animation: progressShine 1s ease-out infinite;
-        }
-
-        @keyframes progressShine {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
         }
 
         @keyframes progress {
@@ -492,42 +283,16 @@
         }
 
         .status-dot {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: var(--success-gradient);
+            background: var(--success-color);
             animation: blink 2s infinite;
-            box-shadow: 0 0 15px var(--success-glow), inset 0 0 5px rgba(255, 255, 255, 0.5);
-            position: relative;
-        }
-
-        .status-dot::after {
-            content: '';
-            position: absolute;
-            top: -4px;
-            left: -4px;
-            right: -4px;
-            bottom: -4px;
-            border-radius: 50%;
-            border: 2px solid var(--success-color);
-            opacity: 0;
-            animation: ripple 2s infinite;
-        }
-
-        @keyframes ripple {
-            0% {
-                transform: scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: scale(1.5);
-                opacity: 0;
-            }
         }
 
         @keyframes blink {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            50% { opacity: 0.5; }
         }
 
         /* Responsive design */
@@ -560,50 +325,9 @@
                 }
             }
         }
-
-        /* 粒子背景系统 */
-        .particles {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 1;
-        }
-
-        .particle {
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.8);
-            border-radius: 50%;
-            box-shadow: var(--glow-sm);
-            animation: float linear infinite;
-        }
-
-        @keyframes float {
-            from {
-                transform: translateY(100vh) translateX(0) scale(0);
-                opacity: 0;
-            }
-            10% {
-                opacity: 1;
-            }
-            90% {
-                opacity: 1;
-            }
-            to {
-                transform: translateY(-100vh) translateX(100px) scale(1);
-                opacity: 0;
-            }
-        }
     </style>
 </head>
 <body>
-    <div class="particles" id="particles"></div>
-    
     <div class="container">
         <div class="success-card">
             <div class="checkmark-container">
@@ -613,11 +337,11 @@
                 </svg>
             </div>
             
-            <h1 class="success-title">连接成功！</h1>
-            <p class="success-message">WiFi配置已完成，设备正在重启</p>
+            <h1 class="success-title" data-lang="success_title">连接成功！</h1>
+            <p class="success-message" data-lang="success_message">WiFi配置已完成，设备正在重启</p>
             
             <div class="countdown-container">
-                <div class="countdown-text">设备将在以下时间后重启：</div>
+                <div class="countdown-text" data-lang="countdown_text">设备将在以下时间后重启：</div>
                 <span class="countdown-number" id="countdown">3</span>
                 <div class="progress-bar">
                     <div class="progress-fill"></div>
@@ -626,47 +350,109 @@
             
             <div class="status-indicator">
                 <div class="status-dot"></div>
-                <span>正在准备重启设备...</span>
+                <span data-lang="status_preparing">正在准备重启设备...</span>
             </div>
         </div>
     </div>
     
     <script>
-        // 初始化粒子系统
-        function initParticles() {
-            const particlesContainer = document.getElementById('particles');
-            const particleCount = 30;
-            
-            for (let i = 0; i < particleCount; i++) {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                
-                // 随机位置
-                particle.style.left = Math.random() * 100 + '%';
-                particle.style.top = Math.random() * 100 + '%';
-                
-                // 随机大小
-                const size = Math.random() * 3 + 2;
-                particle.style.width = size + 'px';
-                particle.style.height = size + 'px';
-                
-                // 随机动画持续时间
-                const duration = Math.random() * 20 + 20;
-                particle.style.animationDuration = duration + 's';
-                
-                // 随机动画延迟
-                const delay = Math.random() * 20;
-                particle.style.animationDelay = delay + 's';
-                
-                // 随机透明度
-                particle.style.opacity = Math.random() * 0.6 + 0.2;
-                
-                particlesContainer.appendChild(particle);
+        // 多语言翻译
+        const translations = {
+            'zh-CN': {
+                success_title: '连接成功！',
+                success_message: 'WiFi配置已完成，设备正在重启',
+                countdown_text: '设备将在以下时间后重启：',
+                status_preparing: '正在准备重启设备...',
+                status_success: '设备重启成功！',
+                status_complete: '配置完成，您可以关闭此页面',
+                status_failed: '重启指令发送失败',
+                status_error: '连接错误，请手动重启设备'
+            },
+            'zh-TW': {
+                success_title: '連接成功！',
+                success_message: 'WiFi設定已完成，設備正在重啟',
+                countdown_text: '設備將在以下時間後重啟：',
+                status_preparing: '正在準備重啟設備...',
+                status_success: '設備重啟成功！',
+                status_complete: '設定完成，您可以關閉此頁面',
+                status_failed: '重啟指令發送失敗',
+                status_error: '連接錯誤，請手動重啟設備'
+            },
+            'en-US': {
+                success_title: 'Connection Successful!',
+                success_message: 'WiFi configuration completed, device is restarting',
+                countdown_text: 'Device will restart in:',
+                status_preparing: 'Preparing to restart device...',
+                status_success: 'Device restarted successfully!',
+                status_complete: 'Configuration complete, you can close this page',
+                status_failed: 'Failed to send restart command',
+                status_error: 'Connection error, please restart device manually'
+            },
+            'ja-JP': {
+                success_title: '接続成功！',
+                success_message: 'WiFi設定が完了しました。デバイスを再起動しています',
+                countdown_text: 'デバイスは次の時間後に再起動します：',
+                status_preparing: 'デバイスの再起動を準備中...',
+                status_success: 'デバイスの再起動に成功しました！',
+                status_complete: '設定完了、このページを閉じることができます',
+                status_failed: '再起動コマンドの送信に失敗しました',
+                status_error: '接続エラー、手動でデバイスを再起動してください'
+            },
+            'ko-KR': {
+                success_title: '연결 성공！',
+                success_message: 'WiFi 설정이 완료되었습니다. 장치를 재시작하는 중',
+                countdown_text: '다음 시간 후에 장치가 재시작됩니다：',
+                status_preparing: '장치 재시작 준비 중...',
+                status_success: '장치 재시작 성공！',
+                status_complete: '설정 완료, 이 페이지를 닫을 수 있습니다',
+                status_failed: '재시작 명령 전송 실패',
+                status_error: '연결 오류, 장치를 수동으로 재시작하십시오'
+            },
+            'th-TH': {
+                success_title: 'เชื่อมต่อสำเร็จ！',
+                success_message: 'การตั้งค่า WiFi เสร็จสมบูรณ์ กำลังรีสตาร์ทอุปกรณ์',
+                countdown_text: 'อุปกรณ์จะรีสตาร์ทในเวลา：',
+                status_preparing: 'กำลังเตรียมรีสตาร์ทอุปกรณ์...',
+                status_success: 'รีสตาร์ทอุปกรณ์สำเร็จ！',
+                status_complete: 'การตั้งค่าเสร็จสมบูรณ์ คุณสามารถปิดหน้านี้ได้',
+                status_failed: 'การส่งคำสั่งรีสตาร์ทล้มเหลว',
+                status_error: 'ข้อผิดพลาดในการเชื่อมต่อ โปรดรีสตาร์ทอุปกรณ์ด้วยตนเอง'
+            },
+            'vi-VN': {
+                success_title: 'Kết nối thành công！',
+                success_message: 'Cấu hình WiFi đã hoàn tất, thiết bị đang khởi động lại',
+                countdown_text: 'Thiết bị sẽ khởi động lại sau：',
+                status_preparing: 'Đang chuẩn bị khởi động lại thiết bị...',
+                status_success: 'Khởi động lại thiết bị thành công！',
+                status_complete: 'Cấu hình hoàn tất, bạn có thể đóng trang này',
+                status_failed: 'Gửi lệnh khởi động lại thất bại',
+                status_error: 'Lỗi kết nối, vui lòng khởi động lại thiết bị thủ công'
             }
+        };
+
+        // 应用语言翻译
+        function applyLanguage(lang) {
+            if (!translations[lang]) {
+                lang = 'zh-CN'; // 默认使用简体中文
+            }
+            
+            document.querySelectorAll('[data-lang]').forEach(element => {
+                const key = element.getAttribute('data-lang');
+                if (translations[lang][key]) {
+                    element.textContent = translations[lang][key];
+                }
+            });
         }
 
         window.addEventListener('load', function() {
-            initParticles();
+            // 从URL参数或localStorage获取语言设置
+            const urlParams = new URLSearchParams(window.location.search);
+            const langParam = urlParams.get('lang');
+            const savedLang = langParam || localStorage.getItem('preferred_language') || 'zh-CN';
+            const currentLang = translations[savedLang] ? savedLang : 'zh-CN';
+            
+            // 应用语言
+            applyLanguage(currentLang);
             
             let count = 3;
             const countdownElement = document.getElementById('countdown');
@@ -688,7 +474,7 @@
                         document.querySelector('.countdown-container').style.display = 'none';
                         
                         // 更新状态信息
-                        document.querySelector('.status-indicator span').textContent = '设备重启成功！';
+                        document.querySelector('.status-indicator span').textContent = translations[currentLang].status_success;
                         document.querySelector('.status-indicator span').style.color = 'var(--success-color)';
                         document.querySelector('.status-indicator span').style.fontWeight = '600';
                         
@@ -705,18 +491,18 @@
                                         window.close();
                                     } catch (e) {
                                         // 如果无法关闭，显示提示信息
-                                        document.querySelector('.status-indicator span').textContent = '配置完成，您可以关闭此页面';
+                                        document.querySelector('.status-indicator span').textContent = translations[currentLang].status_complete;
                                     }
                                 }, 2000);
                             } else {
                                 console.error('发送重启指令失败');
-                                document.querySelector('.status-indicator span').textContent = '重启指令发送失败';
+                                document.querySelector('.status-indicator span').textContent = translations[currentLang].status_failed;
                                 document.querySelector('.status-indicator span').style.color = 'var(--error-color)';
                             }
                         })
                         .catch(error => {
                             console.error('Error:', error);
-                            document.querySelector('.status-indicator span').textContent = '连接错误，请手动重启设备';
+                            document.querySelector('.status-indicator span').textContent = translations[currentLang].status_error;
                             document.querySelector('.status-indicator span').style.color = 'var(--error-color)';
                         });
                     }, 500);

@@ -79,7 +79,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-            background: #0a0a0a;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
             color: var(--text-primary);
             line-height: 1.6;
@@ -88,110 +88,9 @@
             position: relative;
         }
 
-        /* 动态极光背景 */
-        body::before,
-        body::after {
-            content: '';
-            position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            opacity: 0.8;
-            animation: aurora var(--duration-slower) ease-in-out infinite;
-            pointer-events: none;
-        }
-
-        body::before {
-            background: var(--aurora-gradient-1);
-            animation-duration: 25s;
-            animation-delay: 0s;
-        }
-
-        body::after {
-            background: var(--aurora-gradient-2);
-            animation-duration: 30s;
-            animation-delay: -5s;
-            opacity: 0.6;
-        }
-
-        /* 额外的背景层 */
-        body > *:first-child::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: var(--aurora-gradient-3);
-            opacity: 0.3;
-            animation: aurora 35s ease-in-out infinite reverse;
-            animation-delay: -10s;
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        @keyframes aurora {
-            0%, 100% {
-                transform: rotate(0deg) scale(1) translateX(0);
-                filter: hue-rotate(0deg);
-            }
-            25% {
-                transform: rotate(45deg) scale(1.1) translateX(10%);
-                filter: hue-rotate(20deg);
-            }
-            50% {
-                transform: rotate(90deg) scale(1.2) translateX(-10%);
-                filter: hue-rotate(-20deg);
-            }
-            75% {
-                transform: rotate(135deg) scale(1.1) translateX(5%);
-                filter: hue-rotate(10deg);
-            }
-        }
-
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* 粒子背景系统 */
-        .particles {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 1;
-        }
-
-        .particle {
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.8);
-            border-radius: 50%;
-            box-shadow: var(--glow-sm);
-            animation: float linear infinite;
-        }
-
-        @keyframes float {
-            from {
-                transform: translateY(100vh) translateX(0) scale(0);
-                opacity: 0;
-            }
-            10% {
-                opacity: 1;
-            }
-            90% {
-                opacity: 1;
-            }
-            to {
-                transform: translateY(-100vh) translateX(100px) scale(1);
-                opacity: 0;
-            }
         }
 
         /* Main container */
@@ -223,22 +122,8 @@
         .title {
             font-size: 32px;
             font-weight: 700;
-            background: linear-gradient(135deg, #ffffff 0%, #f093fb 50%, #667eea 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            text-shadow: 0 0 30px rgba(240, 147, 251, 0.5);
+            color: var(--text-primary);
             position: relative;
-            animation: titleGlow 3s ease-in-out infinite;
-        }
-
-        @keyframes titleGlow {
-            0%, 100% { 
-                filter: brightness(1) drop-shadow(0 0 20px rgba(240, 147, 251, 0.5));
-            }
-            50% { 
-                filter: brightness(1.2) drop-shadow(0 0 40px rgba(240, 147, 251, 0.8));
-            }
         }
 
         .language-switch {
@@ -246,9 +131,7 @@
         }
 
         .language-switch select {
-            background: var(--glass-gradient);
-            backdrop-filter: blur(10px) saturate(180%);
-            -webkit-backdrop-filter: blur(10px) saturate(180%);
+            background: rgba(30, 30, 50, 0.85);
             border: 1px solid var(--card-border);
             border-radius: var(--border-radius-pill);
             color: var(--text-primary);
@@ -258,88 +141,42 @@
             font-weight: 500;
             outline: none;
             cursor: pointer;
-            transition: all var(--duration-normal) var(--ease-out-expo);
+            transition: all var(--duration-normal) ease;
             appearance: none;
             -webkit-appearance: none;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 12px center;
-            box-shadow: var(--shadow-light), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            box-shadow: var(--shadow-light);
         }
 
         .language-switch select:hover {
-            background-color: rgba(255, 255, 255, 0.15);
-            transform: translateY(-2px) scale(1.05);
-            box-shadow: var(--shadow-medium), var(--glow-sm);
+            background-color: rgba(50, 50, 70, 0.85);
             border-color: rgba(255, 255, 255, 0.3);
         }
 
         .language-switch select:focus {
-            box-shadow: var(--shadow-medium), var(--glow-md), 0 0 0 3px rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
         }
 
         /* Card component */
         .card {
-            background: var(--glass-gradient);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            background: rgba(30, 30, 50, 0.85);
             border: 1px solid var(--card-border);
             border-radius: var(--border-radius);
             padding: var(--spacing-md);
             margin-bottom: var(--spacing-md);
-            box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            transition: all var(--duration-normal) var(--ease-out-expo);
-            animation: slideUp 0.6s var(--ease-out-back) both;
+            box-shadow: var(--shadow-card);
+            transition: all var(--duration-normal) ease;
+            animation: slideUp 0.6s ease-out both;
             position: relative;
-            overflow: hidden;
-            transform-style: preserve-3d;
-            will-change: transform;
-        }
-
-        /* 卡片光晕效果 */
-        .card::before {
-            content: '';
-            position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: var(--secondary-gradient);
-            border-radius: var(--border-radius);
-            opacity: 0;
-            z-index: -1;
-            transition: opacity var(--duration-normal) ease;
-            filter: blur(10px);
-        }
-
-        /* 卡片内部光效 */
-        .card::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
-            opacity: 0.5;
-            transform: translateX(-100%);
-            animation: shimmer 3s infinite;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
         }
 
         .card:hover {
-            transform: translateY(-8px) rotateX(2deg);
-            box-shadow: var(--shadow-heavy), var(--shadow-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            background: var(--card-bg-hover);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-heavy);
+            background: rgba(40, 40, 60, 0.85);
             border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .card:hover::before {
-            opacity: 0.3;
         }
 
         @keyframes slideUp {
@@ -395,24 +232,6 @@
             position: relative;
         }
 
-        .form-group::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 50%;
-            width: 0;
-            height: 2px;
-            background: var(--secondary-gradient);
-            transition: all var(--duration-normal) var(--ease-out-expo);
-            transform: translateX(-50%);
-            border-radius: 2px;
-            box-shadow: var(--glow-sm);
-        }
-
-        .form-group:focus-within::after {
-            width: 100%;
-        }
-
         .form-label {
             display: block;
             margin-bottom: var(--spacing-xs);
@@ -424,34 +243,24 @@
         .form-input {
             width: 100%;
             padding: var(--spacing-sm);
-            background: var(--input-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            background: rgba(30, 30, 50, 0.7);
             border: 1px solid var(--input-border);
             border-radius: var(--border-radius-small);
             color: var(--text-primary);
             font-size: 16px;
             outline: none;
-            transition: all var(--duration-normal) var(--ease-out-expo);
+            transition: all var(--duration-normal) ease;
             position: relative;
-            box-shadow: var(--inner-shadow);
         }
 
         .form-input::placeholder {
             color: var(--text-muted);
-            transition: all var(--duration-normal) ease;
         }
 
         .form-input:focus {
-            background: var(--input-bg-focus);
+            background: rgba(40, 40, 60, 0.7);
             border-color: var(--input-border-focus);
-            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), var(--glow-md), var(--inner-shadow);
-            transform: translateY(-2px);
-        }
-
-        .form-input:focus::placeholder {
-            opacity: 0.5;
-            transform: translateX(5px);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
         }
 
         /* Buttons */
@@ -462,7 +271,7 @@
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: all var(--duration-normal) var(--ease-out-expo);
+            transition: all var(--duration-normal) ease;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -470,86 +279,37 @@
             text-decoration: none;
             outline: none;
             position: relative;
-            overflow: hidden;
-            transform-style: preserve-3d;
-            z-index: 1;
-        }
-
-        /* 按钮涟漪效果 */
-        .btn::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.5);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-
-        .btn:active::before {
-            width: 300px;
-            height: 300px;
         }
 
         .btn-primary {
             background: var(--secondary-gradient);
             color: white;
-            box-shadow: var(--shadow-light), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn-primary::after {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
-            transform: rotate(45deg) translateY(100%);
-            transition: transform 0.6s;
+            box-shadow: var(--shadow-light);
         }
 
         .btn-primary:hover {
-            transform: translateY(-3px) scale(1.02);
-            box-shadow: var(--shadow-medium), var(--shadow-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-        }
-
-        .btn-primary:hover::after {
-            transform: rotate(45deg) translateY(-100%);
+            opacity: 0.9;
+            box-shadow: var(--shadow-medium);
         }
 
         .btn-primary:active {
-            transform: translateY(-1px) scale(0.98);
+            opacity: 0.8;
         }
 
         .btn-primary:disabled {
             opacity: 0.6;
-            transform: none;
             cursor: not-allowed;
-            box-shadow: var(--shadow-light);
-        }
-
-        .btn-primary:disabled::after {
-            display: none;
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(30, 30, 50, 0.7);
             color: var(--text-primary);
             border: 1px solid var(--card-border);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px) scale(1.05);
+            background: rgba(40, 40, 60, 0.7);
             border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: var(--shadow-light), var(--glow-sm);
         }
 
         .btn-small {
@@ -571,41 +331,21 @@
             align-items: center;
             padding: var(--spacing-sm);
             margin-bottom: var(--spacing-xs);
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.05) 100%);
+            background: rgba(255, 255, 255, 0.08);
             border-radius: var(--border-radius-small);
             cursor: pointer;
-            transition: all var(--duration-normal) var(--ease-out-expo);
+            transition: all var(--duration-normal) ease;
             border: 1px solid transparent;
             position: relative;
-            overflow: hidden;
-            transform-style: preserve-3d;
-            transform: perspective(1000px) rotateX(0deg);
-        }
-
-        .wifi-item::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: left 0.5s;
         }
 
         .wifi-item:hover {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.1) 100%);
-            transform: perspective(1000px) rotateX(-5deg) translateY(-4px) scale(1.02);
+            background: rgba(255, 255, 255, 0.15);
             border-color: var(--card-border);
-            box-shadow: var(--shadow-medium), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        }
-
-        .wifi-item:hover::before {
-            left: 100%;
         }
 
         .wifi-item:active {
-            transform: perspective(1000px) rotateX(-2deg) translateY(-2px) scale(1);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         .wifi-info {
@@ -650,31 +390,11 @@
             width: 4px;
             background: var(--text-muted);
             border-radius: 2px;
-            transition: all var(--duration-normal) var(--ease-out-expo);
-            position: relative;
-            overflow: hidden;
+            transition: background 0.3s ease;
         }
 
         .signal-bar.active {
-            background: linear-gradient(to top, var(--success-color), var(--accent-color));
-            box-shadow: 0 0 8px var(--success-color);
-            animation: pulse 2s infinite;
-        }
-
-        .signal-bar.active::after {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: 0;
-            right: 0;
-            height: 100%;
-            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.4), transparent);
-            animation: signalWave 1.5s infinite;
-        }
-
-        @keyframes signalWave {
-            0% { transform: translateY(100%); }
-            100% { transform: translateY(-100%); }
+            background: var(--success-color);
         }
 
         .signal-bar:nth-child(1) { height: 8px; }
@@ -765,42 +485,13 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 30px;
-            height: 30px;
-            margin: -15px 0 0 -15px;
-            border: 3px solid transparent;
-            border-top: 3px solid var(--accent-color);
-            border-right: 3px solid var(--accent-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite, glow 2s ease-in-out infinite;
-            box-shadow: 0 0 20px var(--accent-color);
-        }
-
-        .loading::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 40px;
-            height: 40px;
-            margin: -20px 0 0 -20px;
+            width: 20px;
+            height: 20px;
+            margin: -10px 0 0 -10px;
             border: 2px solid transparent;
-            border-bottom: 2px solid var(--secondary-gradient);
-            border-left: 2px solid var(--secondary-gradient);
+            border-top: 2px solid var(--accent-color);
             border-radius: 50%;
-            animation: spin 1.5s linear infinite reverse;
-            opacity: 0.5;
-        }
-
-        @keyframes glow {
-            0%, 100% { 
-                box-shadow: 0 0 20px var(--accent-color);
-                transform: scale(1);
-            }
-            50% { 
-                box-shadow: 0 0 40px var(--accent-color), 0 0 60px var(--accent-color);
-                transform: scale(1.1);
-            }
+            animation: spin 1s linear infinite;
         }
 
         /* Responsive design */
@@ -844,14 +535,18 @@
     </style>
 </head>
 <body>
-    <div class="particles" id="particles"></div>
     <div class="container">
         <div class="header">
             <h1 class="title" data-lang="title">WiFi 配置</h1>
             <div class="language-switch">
                 <select id="language" onchange="changeLanguage()">
-                    <option value="zh-CN">中文</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="zh-TW">繁體中文</option>
                     <option value="en-US">English</option>
+                    <option value="ja-JP">日本語</option>
+                    <option value="ko-KR">한국어</option>
+                    <option value="th-TH">ไทย</option>
+                    <option value="vi-VN">Tiếng Việt</option>
                 </select>
             </div>
         </div>
@@ -905,6 +600,16 @@
                 connecting: '正在连接...',
                 scanning: '正在扫描...'
             },
+            'zh-TW': {
+                title: 'WiFi 設定',
+                saved_wifi: '已儲存的 WiFi',
+                new_wifi: '新的 WiFi',
+                password: '密碼：',
+                connect: '連接',
+                select_wifi: '可用的 WiFi 網路',
+                connecting: '正在連接...',
+                scanning: '正在掃描...'
+            },
             'en-US': {
                 title: 'WiFi Configuration',
                 saved_wifi: 'Saved WiFi',
@@ -914,6 +619,46 @@
                 select_wifi: 'Available WiFi Networks',
                 connecting: 'Connecting...',
                 scanning: 'Scanning...'
+            },
+            'ja-JP': {
+                title: 'WiFi 設定',
+                saved_wifi: '保存済み WiFi',
+                new_wifi: '新しい WiFi',
+                password: 'パスワード：',
+                connect: '接続',
+                select_wifi: '利用可能な WiFi ネットワーク',
+                connecting: '接続中...',
+                scanning: 'スキャン中...'
+            },
+            'ko-KR': {
+                title: 'WiFi 설정',
+                saved_wifi: '저장된 WiFi',
+                new_wifi: '새 WiFi',
+                password: '비밀번호：',
+                connect: '연결',
+                select_wifi: '사용 가능한 WiFi 네트워크',
+                connecting: '연결 중...',
+                scanning: '스캔 중...'
+            },
+            'th-TH': {
+                title: 'การตั้งค่า WiFi',
+                saved_wifi: 'WiFi ที่บันทึกไว้',
+                new_wifi: 'WiFi ใหม่',
+                password: 'รหัสผ่าน：',
+                connect: 'เชื่อมต่อ',
+                select_wifi: 'เครือข่าย WiFi ที่พร้อมใช้งาน',
+                connecting: 'กำลังเชื่อมต่อ...',
+                scanning: 'กำลังสแกน...'
+            },
+            'vi-VN': {
+                title: 'Cấu hình WiFi',
+                saved_wifi: 'WiFi đã lưu',
+                new_wifi: 'WiFi mới',
+                password: 'Mật khẩu：',
+                connect: 'Kết nối',
+                select_wifi: 'Mạng WiFi khả dụng',
+                connecting: 'Đang kết nối...',
+                scanning: 'Đang quét...'
             }
         };
 
@@ -1051,11 +796,11 @@
                         apList.appendChild(item);
                     });
                     
-                    setTimeout(loadAPList, 5000);
+                    setTimeout(loadAPList, 10000);
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    setTimeout(loadAPList, 5000);
+                    setTimeout(loadAPList, 10000);
                 });
         }
 
@@ -1068,7 +813,6 @@
             changeLanguage();
             loadSavedList();
             loadAPList();
-            initParticles();
         });
 
         window.addEventListener('pageshow', (event) => {
@@ -1115,39 +859,6 @@
                 error.classList.remove('hidden');
                 button.disabled = false;
                 button.textContent = translations[lang].connect;
-            }
-        }
-
-        // 初始化粒子系统
-        function initParticles() {
-            const particlesContainer = document.getElementById('particles');
-            const particleCount = 30; // 减少粒子数量以优化性能
-            
-            for (let i = 0; i < particleCount; i++) {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                
-                // 随机位置
-                particle.style.left = Math.random() * 100 + '%';
-                particle.style.top = Math.random() * 100 + '%';
-                
-                // 随机大小
-                const size = Math.random() * 3 + 2;
-                particle.style.width = size + 'px';
-                particle.style.height = size + 'px';
-                
-                // 随机动画持续时间
-                const duration = Math.random() * 20 + 20;
-                particle.style.animationDuration = duration + 's';
-                
-                // 随机动画延迟
-                const delay = Math.random() * 20;
-                particle.style.animationDelay = delay + 's';
-                
-                // 随机透明度
-                particle.style.opacity = Math.random() * 0.6 + 0.2;
-                
-                particlesContainer.appendChild(particle);
             }
         }
     </script>

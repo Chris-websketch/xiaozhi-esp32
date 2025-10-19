@@ -153,7 +153,14 @@ public:
  
     lv_obj_t * tab1 = nullptr;          // 第一个标签页（主界面）
     lv_obj_t * tab2 = nullptr;          // 第二个标签页（时钟界面）
+    lv_obj_t * tab3 = nullptr;          // 第三个标签页（超级省电模式界面）
     lv_obj_t * tabview_ = nullptr;      // 标签视图组件
+    
+    // tab3超级省电模式的UI元素
+    lv_obj_t * tab3_time_label_ = nullptr;      // 超级省电模式的时间标签
+    lv_obj_t * tab3_date_label_ = nullptr;      // 超级省电模式的日期标签
+    lv_obj_t * tab3_weekday_label_ = nullptr;   // 超级省电模式的星期标签
+    lv_obj_t * tab3_mode_label_ = nullptr;      // 超级省电模式的模式提示标签
     lv_obj_t * bg_img = nullptr;        // 背景图像对象
     lv_obj_t * bg_img2 = nullptr;       // 第二背景图像对象
     uint8_t bg_index = 1;               // 当前背景索引（1-4）
@@ -394,14 +401,11 @@ public:
             }
             
             // 如果当前在时钟页面，切换回主页面
-            if (tabview_ != nullptr && tab1 != nullptr) {
-                lv_obj_t *tabview = lv_obj_get_parent(lv_obj_get_parent(tab1));
-                if (tabview) {
-                    uint32_t active_tab = lv_tabview_get_tab_act(tabview);
-                    if (active_tab == 1) {  // 当前在时钟页面(tab2, 索引1)
-                        ESP_LOGI(TAG, "用户交互唤醒，从时钟页面切换回主页面");
-                        lv_tabview_set_act(tabview, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
-                    }
+            if (tabview_ != nullptr) {
+                uint32_t active_tab = lv_tabview_get_tab_act(tabview_);
+                if (active_tab == 1) {  // 当前在时钟页面(tab2, 索引1)
+                    ESP_LOGI(TAG, "用户交互唤醒，从时钟页面切换回主页面");
+                    lv_tabview_set_act(tabview_, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
                 }
             }
             return;
@@ -491,13 +495,12 @@ public:
                 return;
             }
             
-            // 查找tabview并切换到tab2
-            lv_obj_t *tabview = lv_obj_get_parent(lv_obj_get_parent(display->tab2));
-            if (tabview) {
+            // 使用成员变量tabview_直接切换到tab2
+            if (display->tabview_) {
                 ESP_LOGI(TAG, "空闲定时器触发，切换到时钟页面");
                 // 在切换标签页前加锁，防止异常
                 lv_lock();
-                lv_tabview_set_act(tabview, 1, LV_ANIM_OFF);  // 切换到tab2（索引1）
+                lv_tabview_set_act(display->tabview_, 1, LV_ANIM_OFF);  // 切换到tab2（索引1）
                 
                 // 确保时钟页面始终在最顶层
                 lv_obj_move_foreground(display->tab2);
@@ -515,28 +518,10 @@ public:
             lv_timer_del(t);
             display->idle_timer_ = nullptr;
             
-            // 启动睡眠定时器 - 1分钟后进入睡眠模式
-            ESP_LOGI(TAG, "启动睡眠定时器 - 60秒后进入睡眠模式");
-            display->sleep_timer_ = lv_timer_create([](lv_timer_t *timer) {
-                CustomLcdDisplay *lcd_display = (CustomLcdDisplay *)lv_timer_get_user_data(timer);
-                if (lcd_display) {
-                    // 进入睡眠模式
-                    ESP_LOGI(TAG, "进入睡眠模式 - 降低屏幕亮度到1");
-                    
-                    static auto& board = Board::GetInstance();  // 静态引用避免重复获取
-                    auto backlight = board.GetBacklight();
-                    if (backlight) {
-                        lcd_display->normal_brightness_ = backlight->brightness();
-                        backlight->SetBrightness(10);  // 设置亮度为10
-                    }
-                    
-                    lcd_display->is_sleeping_ = true;
-                    
-                    // 清理定时器
-                    lcd_display->sleep_timer_ = nullptr;
-                }
-            }, 60000, display);  // 60秒后执行
-            lv_timer_set_repeat_count(display->sleep_timer_, 1);  // 只执行一次
+            // 注意：睡眠模式由PowerSaveTimer统一管理
+            // PowerSaveTimer会在60秒后调用EnterLightSleepMode
+            // 在180秒后调用EnterDeepSleepMode切换到tab3
+            ESP_LOGI(TAG, "等待PowerSaveTimer管理后续睡眠流程");
         }, 15000, this);  // 15000ms = 15秒
     }
     
@@ -563,13 +548,12 @@ public:
         }
     }
     
-    // 退出睡眠模式（唤醒）
+    // 退出睡眠模式（唤醒）- 已废弃，由PowerSaveTimer管理
     void ExitSleepMode() {
-        if (!is_sleeping_) return;  // 不在睡眠状态
+        if (!is_sleeping_) return;
         
         ESP_LOGI(TAG, "退出睡眠模式 - 恢复屏幕亮度到 %d", normal_brightness_);
         
-        // 恢复正常亮度
         auto& board = Board::GetInstance();
         auto backlight = board.GetBacklight();
         if (backlight) {
@@ -577,82 +561,21 @@ public:
         }
         
         is_sleeping_ = false;
-        
-        // 重新启动睡眠定时器（如果在时钟页面）
-        StartSleepTimer();
+        // 注意：不再调用StartSleepTimer，由PowerSaveTimer统一管理
     }
     
-    // 启动睡眠定时器
+    // 启动睡眠定时器 - 已废弃，由PowerSaveTimer统一管理
     void StartSleepTimer() {
-        // 检查当前是否在时钟页面（tab2）
-        lv_obj_t *tabview = lv_obj_get_parent(lv_obj_get_parent(tab2));
-        if (!tabview) return;
-        
-        uint32_t active_tab = lv_tabview_get_tab_act(tabview);
-        if (active_tab != 1) return;  // 不在时钟页面，不启动睡眠定时器
-        
-        // 如果已经在睡眠状态，不启动定时器
-        if (is_sleeping_) return;
-        
-        // 检查充电状态或电源连接，充电/插电时不启动睡眠定时器
-        auto& board = Board::GetInstance();
-        int battery_level;
-        bool charging, discharging;
-        if (board.GetBatteryLevel(battery_level, charging, discharging)) {
-            // 正在充电时不启动睡眠定时器
-            if (charging) {
-                ESP_LOGI(TAG, "设备正在充电，不启动睡眠定时器");
-                return;
-            }
-            // 电量很高时，很可能插着电源（不管充电芯片是否工作）
-            if (battery_level >= 95) {
-                ESP_LOGI(TAG, "设备电量很高(>=95)，很可能插着电源，不启动睡眠定时器");
-                return;
-            }
-        }
-        
-        // 停止现有睡眠定时器
-        if (sleep_timer_) {
-            lv_timer_del(sleep_timer_);
-            sleep_timer_ = nullptr;
-        }
-        
-        ESP_LOGI(TAG, "启动睡眠定时器 - 60秒后进入睡眠模式");
-        
-        // 创建睡眠定时器：60秒后进入睡眠模式
-        sleep_timer_ = lv_timer_create([](lv_timer_t *t) {
-            CustomLcdDisplay *display = (CustomLcdDisplay *)lv_timer_get_user_data(t);
-            if (display) {
-                // 检查充电状态或电源连接，充电/插电时不进入睡眠模式
-                auto& board = Board::GetInstance();
-                int battery_level;
-                bool charging, discharging;
-                if (board.GetBatteryLevel(battery_level, charging, discharging)) {
-                    // 正在充电时不进入睡眠模式
-                    if (charging) {
-                        ESP_LOGI(TAG, "设备正在充电，跳过睡眠模式");
-                        return;
-                    }
-                    // 电量很高时，很可能插着电源（不管充电芯片是否工作）
-                    if (battery_level >= 95) {
-                        ESP_LOGI(TAG, "设备电量很高(>=95)，很可能插着电源，跳过睡眠模式");
-                        return;
-                    }
-                }
-                display->EnterSleepMode();
-            }
-        }, 60000, this);  // 60000ms = 60秒 = 1分钟
-        
-        lv_timer_set_repeat_count(sleep_timer_, 1);  // 只执行一次
+        // 注意：此方法已废弃，睡眠模式现在由PowerSaveTimer统一管理
+        // PowerSaveTimer会在60秒后调用EnterLightSleepMode
+        // 在180秒后调用EnterDeepSleepMode切换到tab3
+        ESP_LOGD(TAG, "StartSleepTimer已废弃，由PowerSaveTimer管理");
     }
     
-    // 停止睡眠定时器
+    // 停止睡眠定时器 - 已废弃，由PowerSaveTimer统一管理
     void StopSleepTimer() {
-        if (sleep_timer_) {
-            ESP_LOGI(TAG, "停止睡眠定时器");
-            lv_timer_del(sleep_timer_);
-            sleep_timer_ = nullptr;
-        }
+        // 注意：此方法已废弃，睡眠定时器由PowerSaveTimer管理
+        ESP_LOGD(TAG, "StopSleepTimer已废弃，由PowerSaveTimer管理");
     }
     
     // 浅睡眠状态管理方法
@@ -746,7 +669,7 @@ public:
         // 如果当前处于WiFi配置模式，显示到时钟页面也显示提示
         if (std::string(content).find(Lang::Strings::CONNECT_TO_HOTSPOT) != std::string::npos) {
             // 在时钟页面添加配网提示（已在外层获取锁，无需重复获取）
-            lv_obj_t* wifi_hint = lv_label_create(tab2);
+            lv_obj_t* wifi_hint = lv_label_create(tab3);
             lv_obj_set_size(wifi_hint, LV_HOR_RES * 0.8, LV_SIZE_CONTENT);
             lv_obj_align(wifi_hint, LV_ALIGN_CENTER, 0, -20);
             lv_obj_set_style_text_font(wifi_hint, fonts_.text_font, 0);
@@ -927,34 +850,34 @@ public:
 
     // 设置第二个标签页（时钟界面）
     void SetupTab2() {
-        lv_obj_set_style_text_font(tab2, fonts_.text_font, 0);  // 设置标签页文本字体
-        lv_obj_set_style_text_color(tab2, lv_color_white(), 0);  // 设置文本颜色为白色
-        lv_obj_set_style_bg_color(tab2, lv_color_black(), 0);  // 设置背景颜色为黑色
-        lv_obj_set_style_bg_opa(tab2, LV_OPA_COVER, 0);  // 设置背景不透明度为100%
+        lv_obj_set_style_text_font(tab3, fonts_.text_font, 0);  // 设置标签页文本字体
+        lv_obj_set_style_text_color(tab3, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_color(tab3, lv_color_black(), 0);  // 设置背景颜色为黑色
+        lv_obj_set_style_bg_opa(tab3, LV_OPA_COVER, 0);  // 设置背景不透明度为100%
 
         // 创建秒钟标签，使用time40字体
-        lv_obj_t *second_label = lv_label_create(tab2);
+        lv_obj_t *second_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(second_label, &time40, 0);  // 设置40像素时间字体
         lv_obj_set_style_text_color(second_label, lv_color_white(), 0);  // 设置文本颜色为白色
         lv_obj_align(second_label, LV_ALIGN_TOP_MID, 0, 10);  // 顶部居中对齐，偏移10像素
         lv_label_set_text(second_label, "00");  // 初始显示"00"秒
         
         // 创建日期标签
-        lv_obj_t *date_label = lv_label_create(tab2);
+        lv_obj_t *date_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(date_label, fonts_.text_font, 0);  // 设置文本字体
         lv_obj_set_style_text_color(date_label, lv_color_white(), 0);  // 设置文本颜色为白色
         lv_label_set_text(date_label, "01-01");  // 初始显示"01-01"日期
         lv_obj_align(date_label, LV_ALIGN_TOP_MID, -60, 35);  // 顶部居中对齐，向左偏移60像素，向下偏移35像素
         
         // 创建星期标签
-        lv_obj_t *weekday_label = lv_label_create(tab2);
+        lv_obj_t *weekday_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(weekday_label, fonts_.text_font, 0);  // 设置文本字体
         lv_obj_set_style_text_color(weekday_label, lv_color_white(), 0);  // 设置文本颜色为白色
         lv_label_set_text(weekday_label, "星期一");  // 初始显示"星期一"
         lv_obj_align(weekday_label, LV_ALIGN_TOP_MID, 60, 35);  // 顶部居中对齐，向右偏移60像素，向下偏移35像素
        
         // 创建一个容器用于放置时间标签
-        lv_obj_t *time_container = lv_obj_create(tab2);
+        lv_obj_t *time_container = lv_obj_create(tab3);
         // 设置容器的样式
         lv_obj_remove_style_all(time_container);  // 移除所有默认样式
         lv_obj_set_size(time_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);  // 大小根据内容自适应
@@ -982,7 +905,7 @@ public:
         lv_label_set_text(minute_label, " 00");  // 初始显示" 00"分钟
         
         // 创建农历标签
-        lv_obj_t *lunar_label = lv_label_create(tab2);
+        lv_obj_t *lunar_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(lunar_label, &lunar, 0);  // 设置农历字体
         lv_obj_set_style_text_color(lunar_label, lv_color_white(), 0);  // 设置文本颜色为白色
         lv_obj_set_width(lunar_label, LV_HOR_RES * 0.8);  // 设置宽度为屏幕宽度的80%
@@ -992,7 +915,7 @@ public:
         lv_obj_align(lunar_label, LV_ALIGN_BOTTOM_MID, 0, -36);  // 底部居中对齐，向上偏移36像素
         
         // 创建电池状态容器 - 适配圆形屏幕，放在农历标签下方
-        lv_obj_t* battery_container = lv_obj_create(tab2);
+        lv_obj_t* battery_container = lv_obj_create(tab3);
         lv_obj_set_size(battery_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);  // 自适应内容大小
         lv_obj_set_style_bg_opa(battery_container, LV_OPA_TRANSP, 0);  // 透明背景
         lv_obj_set_style_border_opa(battery_container, LV_OPA_TRANSP, 0);  // 透明边框
@@ -1029,6 +952,30 @@ public:
             // 获取CustomLcdDisplay实例
             CustomLcdDisplay* display_instance = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(t));
             if (!display_instance) return;
+            
+            // 超级省电模式下降低tab3更新频率（1分钟更新一次）
+            static int tab3_update_counter = 0;
+            bool should_update_tab3 = false;
+            
+            // 检查当前是否在tab3（超级省电模式页面）
+            if (display_instance->tabview_) {
+                uint32_t active_tab = lv_tabview_get_tab_act(display_instance->tabview_);
+                if (active_tab == 2) {  // tab3的索引是2
+                    // 在tab3时，每30次更新一次（30 * 2秒 = 60秒 = 1分钟）
+                    tab3_update_counter++;
+                    if (tab3_update_counter >= 30) {
+                        should_update_tab3 = true;
+                        tab3_update_counter = 0;
+                    }
+                    // 如果不到更新时间，只更新tab3就返回，不更新tab2
+                    if (!should_update_tab3) {
+                        return;
+                    }
+                } else {
+                    // 不在tab3时重置计数器
+                    tab3_update_counter = 0;
+                }
+            }
             
             // 浅睡眠模式下仍然需要更新时钟显示，但可以适当减少更新频率
             // 移除浅睡眠状态检查，确保时钟在浅睡眠模式下继续运行
@@ -1174,6 +1121,26 @@ public:
                     lv_label_set_text(display_instance->battery_percentage_label_, battery_text);  // 更新电池百分比
                     ESP_LOGD("ClockTimer", "电池百分比已更新: %s", battery_text);  // 改为DEBUG级别
                 }
+                
+                // 更新tab3超级省电模式的时间显示
+                if (display_instance->tab3_time_label_) {
+                    char time_str[8];
+                    snprintf(time_str, sizeof(time_str), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+                    lv_label_set_text(display_instance->tab3_time_label_, time_str);
+                }
+                
+                // 更新tab3的日期显示
+                if (display_instance->tab3_date_label_) {
+                    char date_str[32];
+                    snprintf(date_str, sizeof(date_str), "%04d-%02d-%02d", 
+                             timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+                    lv_label_set_text(display_instance->tab3_date_label_, date_str);
+                }
+                
+                // 更新tab3的星期显示
+                if (display_instance->tab3_weekday_label_ && timeinfo.tm_wday >= 0 && timeinfo.tm_wday < 7) {
+                    lv_label_set_text(display_instance->tab3_weekday_label_, weekdays[timeinfo.tm_wday]);
+                }
             }  // DisplayLockGuard 会自动释放锁
             
         }, 2000, this);  // 性能优化：每2000毫秒更新一次，减少CPU占用
@@ -1210,9 +1177,10 @@ public:
         lv_obj_t * content = lv_tabview_get_content(tabview_);  // 获取内容区域
         lv_obj_set_scroll_snap_x(content, LV_SCROLL_SNAP_CENTER);  // 设置水平滚动捕捉为中心
         
-        // 创建两个页面
-        tab1 = lv_tabview_add_tab(tabview_, "Tab1");  // 添加第一个标签页（主界面）
-        tab2 = lv_tabview_add_tab(tabview_, "Tab2");  // 添加第二个标签页（时钟界面）
+        // 创建三个页面
+        tab1 = lv_tabview_add_tab(tabview_, "Tab1");  // 添加第一个标签页（主界面）- 索引0
+        tab2 = lv_tabview_add_tab(tabview_, "Tab2");  // 添加第二个标签页（时钟界面）- 索引1
+        tab3 = lv_tabview_add_tab(tabview_, "Tab3");  // 添加第三个标签页（超级省电模式界面）- 索引2
 
         // 禁用tab1的滚动功能
         lv_obj_clear_flag(tab1, LV_OBJ_FLAG_SCROLLABLE);
@@ -1223,6 +1191,43 @@ public:
         lv_obj_clear_flag(tab2, LV_OBJ_FLAG_SCROLLABLE);
         // 隐藏tab2的滚动条
         lv_obj_set_scrollbar_mode(tab2, LV_SCROLLBAR_MODE_OFF);
+        
+        // 禁用tab3的滚动功能
+        lv_obj_clear_flag(tab3, LV_OBJ_FLAG_SCROLLABLE);
+        // 隐藏tab3的滚动条
+        lv_obj_set_scrollbar_mode(tab3, LV_SCROLLBAR_MODE_OFF);
+        
+        // 设置tab2为纯黑背景（超级省电模式）
+        lv_obj_set_style_bg_color(tab2, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(tab2, LV_OPA_COVER, 0);
+        
+        // 创建tab2的UI元素：中心显示大号时间（HH:MM）
+        tab3_time_label_ = lv_label_create(tab2);
+        lv_obj_set_style_text_font(tab3_time_label_, &time40, 0);  // 使用40像素大字体
+        lv_obj_set_style_text_color(tab3_time_label_, lv_color_white(), 0);
+        lv_obj_align(tab3_time_label_, LV_ALIGN_CENTER, 0, -30);  // 居中显示，向上偏移30像素
+        lv_label_set_text(tab3_time_label_, "00:00");
+        
+        // 创建tab2的日期标签
+        tab3_date_label_ = lv_label_create(tab2);
+        lv_obj_set_style_text_font(tab3_date_label_, fonts_.text_font, 0);
+        lv_obj_set_style_text_color(tab3_date_label_, lv_color_white(), 0);
+        lv_obj_align(tab3_date_label_, LV_ALIGN_CENTER, 0, 15);  // 在时间下方，向下偏移15像素
+        lv_label_set_text(tab3_date_label_, "2024-01-01");
+        
+        // 创建tab2的星期标签
+        tab3_weekday_label_ = lv_label_create(tab2);
+        lv_obj_set_style_text_font(tab3_weekday_label_, fonts_.text_font, 0);
+        lv_obj_set_style_text_color(tab3_weekday_label_, lv_color_white(), 0);
+        lv_obj_align(tab3_weekday_label_, LV_ALIGN_CENTER, 0, 40);  // 在日期下方，向下偏移40像素
+        lv_label_set_text(tab3_weekday_label_, "星期一");
+        
+        // 创建tab2的模式提示标签
+        tab3_mode_label_ = lv_label_create(tab2);
+        lv_obj_set_style_text_font(tab3_mode_label_, fonts_.text_font, 0);
+        lv_obj_set_style_text_color(tab3_mode_label_, lv_color_make(100, 100, 100), 0);  // 灰色文字
+        lv_obj_align(tab3_mode_label_, LV_ALIGN_BOTTOM_MID, 0, -20);  // 底部居中
+        lv_label_set_text(tab3_mode_label_, "超级省电模式");
 
         // 为两个标签页添加点击事件处理
         lv_obj_add_event_cb(tab1, [](lv_event_t *e) {
@@ -1932,6 +1937,14 @@ private:
                 esp_pm_configure(&pm_config);
                 ESP_LOGI(TAG, "CPU频率已恢复到160MHz");
                 
+                // 恢复系统定时器
+                if (power_manager_) {
+                    power_manager_->StartTimer();
+                }
+                
+                auto& app_timer = Application::GetInstance();
+                app_timer.StartClockTimer();
+                
                 // 恢复屏幕亮度
                 auto backlight = GetBacklight();
                 if (backlight) {
@@ -1984,6 +1997,16 @@ private:
                 
                 // 延迟禁用WiFi省电模式，等待WiFi完全启动后设置
                 // 移至WiFi连接成功后进行
+                
+                // 切换回主页面（tab1）
+                if (display_) {
+                    CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
+                    if (customDisplay->tabview_) {
+                        DisplayLockGuard lock(display_);
+                        ESP_LOGI(TAG, "从超级省电模式唤醒：切换回主页面（tab1）");
+                        lv_tabview_set_act(customDisplay->tabview_, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
+                    }
+                }
                 
                 ESP_LOGI(TAG, "从超级省电模式完全恢复到正常状态");
                 return; // 从超级省电模式唤醒时只做恢复操作，不执行其他功能
@@ -2346,6 +2369,17 @@ private:
             CustomBoard* board = static_cast<CustomBoard*>(lv_timer_get_user_data(t));
             if (!board) return;
             
+            // 超级省电模式下降低检查频率（从2秒降至10秒）
+            if (board->IsInSuperPowerSaveMode()) {
+                static int check_counter = 0;
+                check_counter++;
+                // 每10秒才执行一次检查（每5次调用执行一次，因为定时器是2秒一次）
+                if (check_counter % 5 != 0) {
+                    return;
+                }
+                ESP_LOGD(TAG, "超级省电模式：降频闹钟检查（10秒一次）");
+            }
+            
             auto& app = Application::GetInstance();
             if (app.alarm_m_ == nullptr) return;
             
@@ -2515,7 +2549,7 @@ private:
         // 设置超级省电模式标志
         is_in_super_power_save_ = true;
         
-        // 1. 显示省电提示信息
+        // 1. 显示省电提示信息（在当前页面显示）
         if (display_) {
             if (has_active_alarm) {
                 display_->SetChatMessage("system", "进入超级省电模式\n闹钟功能保持活跃\n按键唤醒设备");
@@ -2523,6 +2557,16 @@ private:
                 display_->SetChatMessage("system", "进入超级省电模式\n按键唤醒设备");
             }
             vTaskDelay(pdMS_TO_TICKS(3000));  // 显示3秒让用户看到
+        }
+        
+        // 2. 切换到超级省电模式专用页面（tab3）
+        if (display_) {
+            CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
+            if (customDisplay->tabview_) {
+                DisplayLockGuard lock(display_);
+                ESP_LOGI(TAG, "超级省电模式：切换到超级省电模式页面（tab3）");
+                lv_tabview_set_act(customDisplay->tabview_, 2, LV_ANIM_OFF);  // 切换到tab3（索引2）
+            }
         }
         
         // 2. 停止所有图片相关任务
@@ -2585,7 +2629,18 @@ private:
             ESP_LOGI(TAG, "屏幕亮度设置为1%%");
         }
         
-        // 8. 降低CPU频率到最低以节省功耗
+        // 8. 停止非必要的系统定时器以减少CPU唤醒
+        // 停止PowerManager的电池检测定时器
+        if (power_manager_) {
+            power_manager_->StopTimer();
+        }
+        
+        // 停止Application的时钟定时器（内存监控）
+        auto& app_timer = Application::GetInstance();
+        app_timer.StopClockTimer();
+        
+        // 9. 降低CPU频率到最低以节省功耗
+        // 注意：不暂停LVGL定时器，因为在esp_timer回调中调用lv_timer_pause()会导致死锁
         esp_pm_config_t pm_config = {
             .max_freq_mhz = 40,      // 最低CPU频率40MHz
             .min_freq_mhz = 40,      // 最低CPU频率40MHz
@@ -3296,6 +3351,14 @@ public:
         esp_pm_configure(&pm_config);
         ESP_LOGI(TAG, "CPU频率已恢复到160MHz");
         
+        // 恢复系统定时器
+        if (power_manager_) {
+            power_manager_->StartTimer();
+        }
+        
+        auto& app_timer = Application::GetInstance();
+        app_timer.StartClockTimer();
+        
         // 恢复屏幕亮度
         auto backlight = GetBacklight();
         if (backlight) {
@@ -3371,6 +3434,16 @@ public:
         vTaskDelay(pdMS_TO_TICKS(1000));  // 等待WiFi初始化
         ESP_LOGI(TAG, "禁用WiFi省电模式");
         SetPowerSaveMode(false);
+        
+        // 切换回主页面（tab1）
+        if (display_) {
+            CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
+            if (customDisplay->tabview_) {
+                DisplayLockGuard lock(display_);
+                ESP_LOGI(TAG, "从超级省电模式唤醒：切换回主页面（tab1）");
+                lv_tabview_set_act(customDisplay->tabview_, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
+            }
+        }
         
         ESP_LOGI(TAG, "从超级省电模式完全恢复 - 闹钟触发唤醒完成");
     }

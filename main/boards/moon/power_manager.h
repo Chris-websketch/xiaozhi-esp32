@@ -253,4 +253,20 @@ public:
     void OnChargingStatusChanged(std::function<void(bool)> callback) {
         on_charging_status_changed_ = callback;
     }
+    
+    // 停止定时器（用于超级省电模式）
+    void StopTimer() {
+        if (timer_handle_) {
+            esp_timer_stop(timer_handle_);
+            ESP_LOGI("PowerManager", "定时器已停止");
+        }
+    }
+    
+    // 启动定时器（从超级省电模式恢复）
+    void StartTimer() {
+        if (timer_handle_) {
+            esp_timer_start_periodic(timer_handle_, 1000000);  // 每1秒
+            ESP_LOGI("PowerManager", "定时器已启动");
+        }
+    }
 };
