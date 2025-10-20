@@ -1745,6 +1745,9 @@ private:
     // 闹钟提前唤醒状态标志
     bool is_alarm_pre_wake_active_ = false;
     
+    // 闹钟监听定时器句柄
+    lv_timer_t* alarm_monitor_timer_ = nullptr;
+    
     // 音乐播放器MQTT控制器
     MqttMusicHandler* mqtt_music_handler_ = nullptr;
     
@@ -2148,6 +2151,8 @@ private:
         }
         
         // 3. 检查是否正在充电或插着电源（充电/插电时不进入节能模式）
+        // 已注释：允许在充电时进入超级省电模式
+        /*
         int battery_level;
         bool charging, discharging;
         if (GetBatteryLevel(battery_level, charging, discharging)) {
@@ -2162,6 +2167,7 @@ private:
                 return false;
             }
         }
+        */
         
         // 4. 检查是否有下载UI可见（图片下载时不进入节能模式）
         if (display_) {
@@ -2359,26 +2365,72 @@ private:
         }
     }
     
+    // 动态调整闹钟检测频率（根据下次闹钟时间智能调整）
+    void AdjustAlarmCheckFrequency() {
+#if CONFIG_USE_ALARM
+        if (!alarm_monitor_timer_) return;
+        
+        auto& app = Application::GetInstance();
+        if (app.alarm_m_ == nullptr) return;
+        
+        time_t now = time(NULL);
+        auto next_alarm = app.alarm_m_->GetProximateAlarm(now);
+        
+        uint32_t new_period_ms = 2000; // 默认2秒
+        
+        if (!next_alarm.has_value()) {
+            // 无闹钟：停止检查（设置很长的间隔以节省功耗）
+            new_period_ms = 60000; // 60秒
+            ESP_LOGD(TAG, "无活动闹钟，检测频率降至60秒");
+        } else {
+            time_t alarm_time = next_alarm->time;
+            int seconds_to_alarm = (int)(alarm_time - now);
+            
+            if (seconds_to_alarm <= 0) {
+                // 闹钟已过期，使用默认频率
+                new_period_ms = 2000;
+            } else if (seconds_to_alarm > 7200) {
+                // 闹钟超过2小时：每5分钟检查一次
+                new_period_ms = 300000;  // 5分钟
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：5分钟", seconds_to_alarm);
+            } else if (seconds_to_alarm > 3600) {
+                // 闹钟1-2小时：每2分钟检查一次
+                new_period_ms = 120000;  // 2分钟
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：2分钟", seconds_to_alarm);
+            } else if (seconds_to_alarm > 1800) {
+                // 闹钟30-60分钟：每1分钟检查一次
+                new_period_ms = 60000;   // 1分钟
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：1分钟", seconds_to_alarm);
+            } else if (seconds_to_alarm > 600) {
+                // 闹钟10-30分钟：每30秒检查一次
+                new_period_ms = 30000;   // 30秒
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：30秒", seconds_to_alarm);
+            } else if (seconds_to_alarm > 300) {
+                // 闹钟5-10分钟：每10秒检查一次
+                new_period_ms = 10000;   // 10秒
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：10秒", seconds_to_alarm);
+            } else {
+                // 闹钟少于5分钟：每5秒检查一次（最频繁）
+                new_period_ms = 5000;    // 5秒
+                ESP_LOGD(TAG, "闹钟将在%d秒后响起，检测频率：5秒", seconds_to_alarm);
+            }
+        }
+        
+        // 直接更新定时器周期（LVGL没有get_period API）
+        lv_timer_set_period(alarm_monitor_timer_, new_period_ms);
+        ESP_LOGI(TAG, "闹钟检测频率已调整为：%lu ms", (unsigned long)new_period_ms);
+#endif
+    }
+    
     // 初始化闹钟监听器
     void InitializeAlarmMonitor() {
 #if CONFIG_USE_ALARM
-        ESP_LOGI(TAG, "初始化闹钟监听器");
+        ESP_LOGI(TAG, "初始化智能动态闹钟监听器");
         
-        // 创建定时器每2秒检查一次闹钟状态
-        lv_timer_create([](lv_timer_t *t) {
+        // 创建定时器，初始每2秒检查一次，后续会动态调整
+        alarm_monitor_timer_ = lv_timer_create([](lv_timer_t *t) {
             CustomBoard* board = static_cast<CustomBoard*>(lv_timer_get_user_data(t));
             if (!board) return;
-            
-            // 超级省电模式下降低检查频率（从2秒降至10秒）
-            if (board->IsInSuperPowerSaveMode()) {
-                static int check_counter = 0;
-                check_counter++;
-                // 每10秒才执行一次检查（每5次调用执行一次，因为定时器是2秒一次）
-                if (check_counter % 5 != 0) {
-                    return;
-                }
-                ESP_LOGD(TAG, "超级省电模式：降频闹钟检查（10秒一次）");
-            }
             
             auto& app = Application::GetInstance();
             if (app.alarm_m_ == nullptr) return;
@@ -2401,6 +2453,10 @@ private:
                 
                 // 清除闹钟标志（避免重复处理）
                 app.alarm_m_->ClearRing();
+                
+                // 闹钟触发后重新调整检测频率
+                board->AdjustAlarmCheckFrequency();
+                return;
             }
             
             // 检查是否有闹钟即将在1分钟内响起（仅在超级省电模式下检查）
@@ -2451,9 +2507,15 @@ private:
                     }
                 }
             }
-        }, 2000, this);  // 每2000毫秒检查一次
+            
+            // 每次检查后动态调整下次检测频率
+            board->AdjustAlarmCheckFrequency();
+        }, 2000, this);  // 初始每2000毫秒检查一次
         
-        ESP_LOGI(TAG, "闹钟监听器初始化完成");
+        // 立即执行一次频率调整
+        AdjustAlarmCheckFrequency();
+        
+        ESP_LOGI(TAG, "智能动态闹钟监听器初始化完成");
 #else
         ESP_LOGI(TAG, "闹钟功能未启用，跳过闹钟监听器初始化");
 #endif
@@ -2520,6 +2582,36 @@ private:
         ESP_LOGI(TAG, "浅睡眠模式退出完成");
     }
 
+    // 暂停UI相关的LVGL定时器
+    void PauseUiTimers() {
+        CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
+        if (!customDisplay) return;
+        
+        if (customDisplay->idle_timer_) {
+            lv_timer_pause(customDisplay->idle_timer_);
+            ESP_LOGI(TAG, "idle_timer已暂停");
+        }
+        if (customDisplay->sleep_timer_) {
+            lv_timer_pause(customDisplay->sleep_timer_);
+            ESP_LOGI(TAG, "sleep_timer已暂停");
+        }
+    }
+    
+    // 恢复UI相关的LVGL定时器
+    void ResumeUiTimers() {
+        CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
+        if (!customDisplay) return;
+        
+        if (customDisplay->idle_timer_) {
+            lv_timer_resume(customDisplay->idle_timer_);
+            ESP_LOGI(TAG, "idle_timer已恢复");
+        }
+        if (customDisplay->sleep_timer_) {
+            lv_timer_resume(customDisplay->sleep_timer_);
+            ESP_LOGI(TAG, "sleep_timer已恢复");
+        }
+    }
+    
     // 进入超级省电模式 - 关闭大部分功能，保持最低亮度显示和按键唤醒
     void EnterDeepSleepMode() {
         ESP_LOGI(TAG, "进入超级省电模式 - 检查闹钟状态");
@@ -2572,6 +2664,17 @@ private:
         // 2. 停止所有图片相关任务
         SuspendImageTask();
         ESP_LOGI(TAG, "图片轮播任务已停止");
+        
+        // 2.5. 停止屏幕旋转检查定时器（如果存在）
+        if (rotation_check_timer_ != nullptr) {
+            esp_timer_stop(rotation_check_timer_);
+            esp_timer_delete(rotation_check_timer_);
+            rotation_check_timer_ = nullptr;
+            ESP_LOGI(TAG, "屏幕旋转检查定时器已停止并删除");
+        }
+        
+        // 2.6. 暂停UI相关的LVGL定时器（idle_timer和sleep_timer）
+        PauseUiTimers();
         
         // 3. 根据是否有活动闹钟决定音频系统的处理方式
         if (!has_active_alarm) {
@@ -2639,17 +2742,50 @@ private:
         auto& app_timer = Application::GetInstance();
         app_timer.StopClockTimer();
         
-        // 9. 降低CPU频率到最低以节省功耗
-        // 注意：不暂停LVGL定时器，因为在esp_timer回调中调用lv_timer_pause()会导致死锁
-        esp_pm_config_t pm_config = {
-            .max_freq_mhz = 40,      // 最低CPU频率40MHz
-            .min_freq_mhz = 40,      // 最低CPU频率40MHz
-            .light_sleep_enable = false,  // 禁用轻睡眠，保持定时器工作
-        };
-        esp_pm_configure(&pm_config);
-        ESP_LOGI(TAG, "CPU频率降至40MHz，轻睡眠已禁用以保持闹钟功能");
+        // 8.5. 根据闹钟状态调整LVGL定时器
+        if (!has_active_alarm) {
+            // 无活动闹钟：暂停alarm_monitor_timer_以节省更多功耗
+            if (alarm_monitor_timer_) {
+                lv_timer_pause(alarm_monitor_timer_);
+                ESP_LOGI(TAG, "无活动闹钟，已暂停alarm_monitor_timer_");
+            }
+        }
+        // 有活动闹钟时：保持alarm_monitor_timer_运行，它有自己的动态调整机制
         
-        // 9. 设置超级省电标志，让系统知道当前处于最低功耗模式
+        // 延长其他LVGL定时器的刷新间隔以降低功耗
+        ESP_LOGI(TAG, "正在延长LVGL刷新间隔以降低功耗...");
+        lv_timer_t* timer = lv_timer_get_next(NULL);
+        int timer_count = 0;
+        while (timer != NULL) {
+            // 排除闹钟监听定时器（它有自己的动态调整机制或已被暂停）
+            if (timer != alarm_monitor_timer_) {
+                lv_timer_set_period(timer, 500);  // 延长到500ms
+                ESP_LOGD(TAG, "LVGL定时器 %d: 设置为 500 ms", timer_count);
+            }
+            timer = lv_timer_get_next(timer);
+            timer_count++;
+        }
+        ESP_LOGI(TAG, "已调整 %d 个LVGL定时器的刷新间隔", timer_count);
+        
+        // 9. 根据闹钟状态设置不同的电源配置
+        esp_pm_config_t pm_config;
+        if (!has_active_alarm) {
+            // 无活动闹钟：启用轻睡眠以最大化省电
+            pm_config.max_freq_mhz = 40;
+            pm_config.min_freq_mhz = 40;
+            pm_config.light_sleep_enable = true;  // 启用轻睡眠，功耗可降至1-3mA
+            esp_pm_configure(&pm_config);
+            ESP_LOGI(TAG, "CPU频率降至40MHz，轻睡眠已启用（无活动闹钟，最大化省电）");
+        } else {
+            // 有活动闹钟：保守策略，禁用轻睡眠确保闹钟可靠性
+            pm_config.max_freq_mhz = 40;
+            pm_config.min_freq_mhz = 40;
+            pm_config.light_sleep_enable = false;  // 禁用轻睡眠，保持定时器精确
+            esp_pm_configure(&pm_config);
+            ESP_LOGI(TAG, "CPU频率降至40MHz，轻睡眠已禁用（有活动闹钟，保证可靠性）");
+        }
+        
+        // 10. 设置超级省电标志，让系统知道当前处于最低功耗模式
         ESP_LOGI(TAG, "超级省电模式激活完成 - 闹钟功能%s", 
                  has_active_alarm ? "保持活跃" : "已关闭");
     }
@@ -3341,6 +3477,34 @@ public:
         
         // 清除超级省电模式标志
         is_in_super_power_save_ = false;
+        
+        // 恢复LVGL刷新间隔到正常频率
+        ESP_LOGI(TAG, "正在恢复LVGL刷新间隔...");
+        lv_timer_t* timer = lv_timer_get_next(NULL);
+        int timer_count = 0;
+        while (timer != NULL) {
+            // LVGL没有get_period API，直接恢复所有定时器到5ms
+            // 但要排除闹钟监听定时器（它有自己的动态调整机制）
+            if (timer != alarm_monitor_timer_) {
+                // 恢复到常见的LVGL刷新频率
+                lv_timer_set_period(timer, 5);
+                ESP_LOGD(TAG, "LVGL定时器 %d: 恢复为 5 ms", timer_count);
+            }
+            timer = lv_timer_get_next(timer);
+            timer_count++;
+        }
+        ESP_LOGI(TAG, "已恢复 %d 个LVGL定时器的刷新间隔", timer_count);
+        
+        // 恢复UI相关的LVGL定时器（idle_timer和sleep_timer）
+        ResumeUiTimers();
+        
+        // 恢复alarm_monitor_timer_并重新调整频率
+        if (alarm_monitor_timer_) {
+            lv_timer_resume(alarm_monitor_timer_);
+            ESP_LOGI(TAG, "alarm_monitor_timer_已恢复");
+            // 立即调整检测频率以适应当前闹钟状态
+            AdjustAlarmCheckFrequency();
+        }
         
         // 恢复CPU频率
         esp_pm_config_t pm_config = {
