@@ -15,6 +15,7 @@
         "REGISTERING_NETWORK": "ネットワーク接続待機中...",
 
         "STANDBY": "待機中",
+        "LOGGING_IN_SERVER": "サーバーにログイン中",
         "CONNECT_TO": "接続先 ",
         "CONNECTING": "接続中...",
         "CONNECTED_TO": "接続完了 ",

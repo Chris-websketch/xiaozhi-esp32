@@ -13,9 +13,11 @@
 #include "memory/memory_manager.h"
 #include "config/resource_config.h"
 #include "settings.h"
+#include "boards/moon/iot_image_display.h"
 
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -28,6 +30,97 @@ using ImageResource::MemoryManager;
 using ImageResource::ImageBufferPool;
 using ImageResource::ConfigManager;
 using ImageResource::ResourceConfig;
+
+/**
+ * @brief 从emotion字符串映射到表情类型枚举
+ * @param emotion_str emotion字符串（如"happy", "sad"等）
+ * @return 对应的EmotionType枚举值
+ */
+static iot::EmotionType ParseEmotionString(const char* emotion_str) {
+    if (emotion_str == nullptr) {
+        return iot::EMOTION_CALM;
+    }
+    
+    // 转换为小写进行比较（简单处理）
+    std::string emotion_lower = emotion_str;
+    std::transform(emotion_lower.begin(), emotion_lower.end(), emotion_lower.begin(), ::tolower);
+    
+    if (emotion_lower == "happy" || emotion_lower == "happiness" || emotion_lower == "joy") {
+        return iot::EMOTION_HAPPY;
+    } else if (emotion_lower == "sad" || emotion_lower == "sadness" || emotion_lower == "sorrow") {
+        return iot::EMOTION_SAD;
+    } else if (emotion_lower == "angry" || emotion_lower == "anger" || emotion_lower == "rage") {
+        return iot::EMOTION_ANGRY;
+    } else if (emotion_lower == "fearful" || emotion_lower == "fear" || emotion_lower == "scared") {
+        return iot::EMOTION_FEARFUL;
+    } else if (emotion_lower == "disgusted" || emotion_lower == "disgust") {
+        return iot::EMOTION_DISGUSTED;
+    } else if (emotion_lower == "surprised" || emotion_lower == "surprise" || emotion_lower == "amazed") {
+        return iot::EMOTION_SURPRISED;
+    } else if (emotion_lower == "calm" || emotion_lower == "neutral" || emotion_lower == "normal") {
+        return iot::EMOTION_CALM;
+    }
+    
+    // 未识别，返回平静
+    return iot::EMOTION_CALM;
+}
+
+/**
+ * @brief 从文本中解析emoji并映射到表情类型
+ * @param text AI响应文本
+ * @return 对应的EmotionType枚举值
+ */
+static iot::EmotionType ParseEmojiFromText(const char* text) {
+    if (text == nullptr || text[0] == '\0') {
+        return iot::EMOTION_UNKNOWN;  // 空文本，不改变当前表情
+    }
+    
+    // 在整个文本中搜索UTF-8 emoji序列（4字节编码）
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t len = strlen(text);
+    
+    // 遍历文本，查找emoji
+    for (size_t i = 0; i + 3 < len; i++) {
+        // 所有目标emoji都以 0xF0 0x9F 开头
+        if (bytes[i] != 0xF0 || bytes[i+1] != 0x9F) {
+            continue;
+        }
+        
+        // 检查第三和第四字节以识别具体emoji
+        if (bytes[i+2] == 0x98) {
+            switch (bytes[i+3]) {
+                case 0x84: return iot::EMOTION_HAPPY;      // 😄 U+1F604
+                case 0x86: return iot::EMOTION_HAPPY;      // 😆 U+1F606 大笑
+                case 0x81: return iot::EMOTION_HAPPY;      // 😁 U+1F601 露齿笑
+                case 0x8A: return iot::EMOTION_HAPPY;      // 😊 U+1F60A 微笑
+                case 0x82: return iot::EMOTION_HAPPY;      // 😂 U+1F602 笑哭
+                case 0xA2: return iot::EMOTION_SAD;        // 😢 U+1F622 哭泣
+                case 0xAD: return iot::EMOTION_SAD;        // 😭 U+1F62D 大哭
+                case 0x94: return iot::EMOTION_SAD;        // 😔 U+1F614 沉思
+                case 0xA0: return iot::EMOTION_ANGRY;      // 😠 U+1F620 生气
+                case 0xA1: return iot::EMOTION_ANGRY;      // 😡 U+1F621 愤怒
+                case 0xA4: return iot::EMOTION_ANGRY;      // 😤 U+1F624 得意
+                case 0xA8: return iot::EMOTION_FEARFUL;    // 😨 U+1F628 恐惧
+                case 0xB1: return iot::EMOTION_FEARFUL;    // 😱 U+1F631 尖叫
+                case 0xB0: return iot::EMOTION_FEARFUL;    // 😰 U+1F630 焦虑
+                case 0xB2: return iot::EMOTION_SURPRISED;  // 😲 U+1F632 惊讶
+                case 0xAE: return iot::EMOTION_SURPRISED;  // 😮 U+1F62E 张嘴
+                case 0xB3: return iot::EMOTION_SURPRISED;  // 😳 U+1F633 脸红
+                case 0x90: return iot::EMOTION_CALM;       // 😐 U+1F610 平静
+                case 0x91: return iot::EMOTION_CALM;       // 😑 U+1F611 无语
+                case 0x92: return iot::EMOTION_CALM;       // 😒 U+1F612 不悦
+                default: break;
+            }
+        } else if (bytes[i+2] == 0xA4 && bytes[i+3] == 0xA2) {
+            return iot::EMOTION_DISGUSTED;  // 🤢 U+1F922 恶心
+        } else if (bytes[i+2] == 0xA4 && bytes[i+3] == 0xAE) {
+            return iot::EMOTION_DISGUSTED;  // 🤮 U+1F92E 呕吐
+        }
+    }
+    
+    // 未找到emoji，返回EMOTION_UNKNOWN表示"不改变当前表情"
+    return iot::EMOTION_UNKNOWN;
+}
 
 static const char* const STATE_STRINGS[] = {
     "unknown",
@@ -187,10 +280,14 @@ void Application::CheckNewVersion() {
             continue;
         }
 
-        SetDeviceState(kDeviceStateIdle);
+        // OTA检查完成，保持Starting状态，等待图片资源检查完成后再切换到Idle
+        // 注意：不能在这里设置为Idle，否则后续SetDeviceState(kDeviceStateIdle)会因状态相同而跳过
         display->SetChatMessage("system", "");
         ResetDecoder();
         // 开机成功提示音已移至资源检查完成后播放（仅在无需更新时播放）
+        
+        // OTA检查完成后，状态栏显示"登录服务器中"（等待资源检查完成）
+        display->SetStatus(Lang::Strings::LOGGING_IN_SERVER);
         
         // OTA检查完成，标记为完成状态
         ESP_LOGI(TAG, "OTA check completed, triggering image resource check");
@@ -551,6 +648,20 @@ void Application::Start() {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (text != NULL) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
+                    
+                    // 如果处于表情包模式，提取emoji并更新当前表情
+                    // 注意：只有当文本中真的包含emoji时才更新，否则保持LLM设置的emotion
+                    if (iot::g_image_display_mode == iot::MODE_EMOTICON) {
+                        iot::EmotionType emotion = ParseEmojiFromText(text->valuestring);
+                        
+                        // 只有找到了真正的emoji（不是EMOTION_UNKNOWN），才更新当前表情
+                        if (emotion != iot::EMOTION_UNKNOWN) {
+                            iot::g_current_emotion = emotion;
+                            ESP_LOGI(TAG, "表情包模式：从文本中检测到emoji，情绪类型 %d", emotion);
+                        }
+                        // 如果文本中没有emoji，保持之前LLM设置的emotion不变
+                    }
+                    
                     Schedule([this, display, message = std::string(text->valuestring)]() {
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -583,8 +694,16 @@ void Application::Start() {
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (emotion != NULL) {
+                // 如果处于表情包模式，解析emotion字符串并更新当前表情
+                if (iot::g_image_display_mode == iot::MODE_EMOTICON) {
+                    iot::EmotionType emotion_type = ParseEmotionString(emotion->valuestring);
+                    iot::g_current_emotion = emotion_type;
+                    ESP_LOGI(TAG, "表情包模式：LLM返回emotion=\"%s\", 映射到情绪类型 %d", 
+                             emotion->valuestring, emotion_type);
+                }
+                
                 Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
-                    // 只有当设备不在说话状态时，才更新表情
+                    // 只有当设备不在说话状态时，才更新表情（旧方法，已禁用）
                     if (device_state_ != kDeviceStateSpeaking) {
                         display->SetEmotion(emotion_str.c_str());
                     }
@@ -688,7 +807,9 @@ void Application::Start() {
     wake_word_detect_.StartDetection();
 #endif
 
-    SetDeviceState(kDeviceStateIdle);
+    // 初始化完成，设置设备状态为starting，等待图片资源检查完成后才切换到idle
+    // 这样SetDeviceState(kDeviceStateIdle)才能正常执行状态切换逻辑（显示"待命"、启用空闲定时器）
+    device_state_ = kDeviceStateStarting;
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
 
 #if 0

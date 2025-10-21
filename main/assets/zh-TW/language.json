@@ -15,6 +15,7 @@
         "REGISTERING_NETWORK": "等待網絡...",
 
         "STANDBY": "待命",
+        "LOGGING_IN_SERVER": "登錄伺服器中",
         "CONNECT_TO": "連接 ",
         "CONNECTING": "連接中...",
         "CONNECTED_TO": "已連接 ",

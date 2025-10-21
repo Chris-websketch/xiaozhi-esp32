@@ -89,8 +89,10 @@ private:
     // 内部方法
     bool CheckImagesExist();
     bool CheckLogoExists();
+    bool CheckEmoticonsExist();
     esp_err_t DownloadImages();
     esp_err_t DownloadLogo();
+    esp_err_t DownloadEmoticons();
     void LoadImageData();
     bool LoadImageFile(int image_index);
     bool LoadLogoFile();
@@ -114,18 +116,23 @@ private:
     bool initialized_;
     bool has_valid_images_;
     bool has_valid_logo_;
+    bool has_valid_emoticons_;
     
     // 下载任务追踪
     bool pending_animations_download_;
     bool pending_logo_download_;
+    bool pending_emoticons_download_;
     bool animations_download_completed_;
     bool logo_download_completed_;
+    bool emoticons_download_completed_;
     
     // URL缓存
     std::string cached_static_url_;
     std::vector<std::string> cached_dynamic_urls_;
+    std::vector<std::string> cached_emoticon_urls_;
     std::string server_static_url_;
     std::vector<std::string> server_dynamic_urls_;
+    std::vector<std::string> server_emoticon_urls_;
     
     // 图片数据
     std::vector<const uint8_t*> image_array_;

@@ -15,6 +15,7 @@ public:
     struct ResourceVersions {
         std::vector<std::string> dynamic_urls;  // 动态图片URL列表
         std::string static_url;                 // 静态图片URL
+        std::vector<std::string> emoticon_urls; // 表情包URL列表
     };
 
     VersionChecker() = default;

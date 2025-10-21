@@ -15,6 +15,7 @@
         "REGISTERING_NETWORK": "Waiting for network...",
 
         "STANDBY": "Standby",
+        "LOGGING_IN_SERVER": "Logging in to server",
         "CONNECT_TO": "Connect to ",
         "CONNECTING": "Connecting...",
         "CONNECTION_SUCCESSFUL": "Connection Successful",

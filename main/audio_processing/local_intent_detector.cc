@@ -82,7 +82,10 @@ void LocalIntentDetector::InitializeDefaultRules() {
     display_mode_rule.keywords = {
         "静态模式", "动态模式",
         "静态壁纸", "动态壁纸",
-        "静态皮肤", "动态皮肤"
+        "静态皮肤", "动态皮肤",
+        "表情包模式", "表情模式",
+        "情绪模式", "切换到表情包",
+        "表情包", "emoji模式"
     };
     display_mode_rule.intent_type = IntentType::DISPLAY_MODE_CONTROL;
     display_mode_rule.action = "SetAnimatedMode"; // 默认动作，会在参数提取器中调整
@@ -123,7 +126,8 @@ bool LocalIntentDetector::DetectIntent(const std::string& text, IntentResult& re
                              text.find("字体") != std::string::npos);
     bool has_display_mode_context = (text.find("模式") != std::string::npos ||
                                     text.find("壁纸") != std::string::npos ||
-                                    text.find("皮肤") != std::string::npos);
+                                    text.find("皮肤") != std::string::npos ||
+                                    text.find("表情包") != std::string::npos);
     bool has_subtitle_context = (text.find("字幕") != std::string::npos);
     
     for (const auto& rule : keyword_rules_) {
@@ -193,7 +197,8 @@ std::vector<IntentResult> LocalIntentDetector::DetectMultipleIntents(const std::
                              text.find("字体") != std::string::npos);
     bool has_display_mode_context = (text.find("模式") != std::string::npos ||
                                     text.find("壁纸") != std::string::npos ||
-                                    text.find("皮肤") != std::string::npos);
+                                    text.find("皮肤") != std::string::npos ||
+                                    text.find("表情包") != std::string::npos);
     bool has_subtitle_context = (text.find("字幕") != std::string::npos);
     
     // 跟踪已处理的意图类型，避免重复
@@ -682,6 +687,20 @@ void LocalIntentDetector::ExtractThemeParameters(const std::string& text, Intent
 }
 
 void LocalIntentDetector::ExtractDisplayModeParameters(const std::string& text, IntentResult& result) {
+    // 检查表情包模式关键词（优先级最高）
+    if (text.find("表情包模式") != std::string::npos || 
+        text.find("表情模式") != std::string::npos ||
+        text.find("情绪模式") != std::string::npos ||
+        text.find("切换到表情包") != std::string::npos ||
+        text.find("emoji模式") != std::string::npos ||
+        (text.find("表情包") != std::string::npos && 
+         (text.find("模式") != std::string::npos || text.find("切换") != std::string::npos))) {
+        result.action = "SetEmoticonMode";
+        result.confidence = 0.95f;
+        ESP_LOGI(TAG, "检测到表情包模式请求");
+        return;
+    }
+    
     // 检查静态模式关键词
     if (text.find("静态模式") != std::string::npos || 
         text.find("静态壁纸") != std::string::npos ||

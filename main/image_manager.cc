@@ -21,11 +21,25 @@
 // 路径常量
 #define IMAGE_URL_CACHE_FILE "/resources/image_urls.json"
 #define LOGO_URL_CACHE_FILE "/resources/logo_url.json"
+#define EMOTICON_URL_CACHE_FILE "/resources/emoticon_urls.txt"
 #define IMAGE_BASE_PATH "/resources/images/"
 #define LOGO_FILE_PATH "/resources/images/logo.bin"
 #define LOGO_FILE_PATH_H "/resources/images/logo.h"
+#define EMOTICON_BASE_PATH "/resources/emoticons/"
 #define PACKED_FILE_PATH "/resources/images/packed.rgb"
 #define MAX_IMAGE_FILES 9
+#define MAX_EMOTICON_FILES 7
+
+// 表情包文件名映射
+static const char* EMOTICON_FILENAMES[7] = {
+    "happy.bin",
+    "sad.bin",
+    "angry.bin",
+    "fearful.bin",
+    "disgusted.bin",
+    "surprised.bin",
+    "calm.bin"
+};
 
 using namespace ImageResource;
 
@@ -34,10 +48,13 @@ ImageResourceManager::ImageResourceManager()
       initialized_(false),
       has_valid_images_(false),
       has_valid_logo_(false),
+      has_valid_emoticons_(false),
       pending_animations_download_(false),
       pending_logo_download_(false),
+      pending_emoticons_download_(false),
       animations_download_completed_(false),
       logo_download_completed_(false),
+      emoticons_download_completed_(false),
       logo_data_(nullptr),
       progress_callback_(nullptr),
       preload_progress_callback_(nullptr) {
@@ -92,13 +109,22 @@ esp_err_t ImageResourceManager::Initialize() {
     // 读取缓存的URL
     cached_dynamic_urls_ = cache_mgr_->ReadDynamicUrls(IMAGE_URL_CACHE_FILE);
     cached_static_url_ = cache_mgr_->ReadStaticUrl(LOGO_URL_CACHE_FILE);
+    cached_emoticon_urls_ = cache_mgr_->ReadDynamicUrls(EMOTICON_URL_CACHE_FILE);
     
     ESP_LOGI(TAG, "当前本地动画图片URL数量: %d", cached_dynamic_urls_.size());
     ESP_LOGI(TAG, "当前本地logo URL: %s", cached_static_url_.c_str());
+    ESP_LOGI(TAG, "当前本地表情包URL数量: %d", cached_emoticon_urls_.size());
     
     // 检查资源
     has_valid_images_ = CheckImagesExist();
     has_valid_logo_ = CheckLogoExists();
+    has_valid_emoticons_ = CheckEmoticonsExist();
+    
+    if (has_valid_emoticons_) {
+        ESP_LOGI(TAG, "表情包文件已存在");
+    } else {
+        ESP_LOGW(TAG, "表情包文件不存在或不完整");
+    }
     
     if (has_valid_images_ || has_valid_logo_) {
         LoadImageData();
@@ -144,6 +170,20 @@ bool ImageResourceManager::CheckLogoExists() {
         return true;
     }
     return false;
+}
+
+bool ImageResourceManager::CheckEmoticonsExist() {
+    for (int i = 0; i < MAX_EMOTICON_FILES; i++) {
+        char filepath[128];
+        snprintf(filepath, sizeof(filepath), "%s%s", 
+                EMOTICON_BASE_PATH, EMOTICON_FILENAMES[i]);
+        
+        struct stat st;
+        if (stat(filepath, &st) != 0 || st.st_size != 115200) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void ImageResourceManager::LoadImageData() {
@@ -271,6 +311,7 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
     
     bool need_update_animations = !has_valid_images_;
     bool need_update_logo = !has_valid_logo_;
+    bool need_update_emoticons = !has_valid_emoticons_;
     
     // 检查服务器版本
     VersionChecker::ResourceVersions server_versions;
@@ -280,6 +321,7 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
         VersionChecker::ResourceVersions local_versions;
         local_versions.dynamic_urls = cached_dynamic_urls_;
         local_versions.static_url = cached_static_url_;
+        local_versions.emoticon_urls = cached_emoticon_urls_;
         
         bool need_dyn = false, need_sta = false;
         version_checker_->NeedsUpdate(server_versions, local_versions, need_dyn, need_sta);
@@ -287,12 +329,38 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
         need_update_animations = need_update_animations || need_dyn;
         need_update_logo = need_update_logo || need_sta;
         
+        // 检查表情包版本
+        if (!server_versions.emoticon_urls.empty()) {
+            if (cached_emoticon_urls_ != server_versions.emoticon_urls) {
+                need_update_emoticons = true;
+                ESP_LOGI(TAG, "表情包需要更新");
+            }
+            server_emoticon_urls_ = server_versions.emoticon_urls;
+        } else {
+            // 服务器未返回表情包URL，使用硬编码的默认URL（测试用）
+            ESP_LOGW(TAG, "服务器未返回表情包URL，使用默认地址");
+            server_emoticon_urls_ = {
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rbkgwm.bin",   // happy
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rbmqa9.bin",   // sad
+                "https://imgbad.xmduzhong.com/i/2025/10/20/ra4enj.bin",   // angry
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rb99ap.bin",   // fearful
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rb6ci2.bin",   // disgusted
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rbpi1v.bin",   // surprised
+                "https://imgbad.xmduzhong.com/i/2025/10/20/rb3vn6.bin"    // calm
+            };
+            // 检查是否需要下载
+            if (cached_emoticon_urls_ != server_emoticon_urls_) {
+                need_update_emoticons = true;
+                ESP_LOGI(TAG, "使用默认表情包URL，需要下载");
+            }
+        }
+        
         server_dynamic_urls_ = server_versions.dynamic_urls;
         server_static_url_ = server_versions.static_url;
     }
     
     // 如果都不需要更新，检查打包文件
-    if (!need_update_animations && !need_update_logo) {
+    if (!need_update_animations && !need_update_logo && !need_update_emoticons) {
         ESP_LOGI(TAG, "所有资源都是最新版本");
         
         struct stat st;
@@ -308,8 +376,10 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
     // 设置下载任务标志
     pending_animations_download_ = need_update_animations;
     pending_logo_download_ = need_update_logo;
+    pending_emoticons_download_ = need_update_emoticons;
     animations_download_completed_ = false;
     logo_download_completed_ = false;
+    emoticons_download_completed_ = false;
     
     // 下载资源
     if (need_update_animations) {
@@ -318,6 +388,9 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
     if (need_update_logo) {
         DownloadLogo();
     }
+    if (need_update_emoticons) {
+        DownloadEmoticons();
+    }
     
     // 检查是否所有下载都完成，统一执行打包
     bool all_completed = true;
@@ -325,6 +398,9 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
         all_completed = false;
     }
     if (pending_logo_download_ && !logo_download_completed_) {
+        all_completed = false;
+    }
+    if (pending_emoticons_download_ && !emoticons_download_completed_) {
         all_completed = false;
     }
     
@@ -408,6 +484,50 @@ esp_err_t ImageResourceManager::DownloadLogo() {
         
         LoadImageData();
         ESP_LOGI(TAG, "Logo下载完成，等待其他资源...");
+    }
+    
+    download_mode_->Exit();
+    return result;
+}
+
+esp_err_t ImageResourceManager::DownloadEmoticons() {
+    if (server_emoticon_urls_.size() != MAX_EMOTICON_FILES) {
+        ESP_LOGE(TAG, "表情包URL数量不正确: %zu (期望: %d)", 
+                server_emoticon_urls_.size(), MAX_EMOTICON_FILES);
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "开始下载表情包...");
+    
+    if (progress_callback_) {
+        progress_callback_(0, 100, "正在准备下载表情包...");
+    }
+    
+    download_mode_->Enter();
+    
+    // 确保目录存在
+    mkdir("/resources/emoticons", 0755);
+    
+    // 准备文件路径
+    std::vector<std::string> filepaths;
+    for (int i = 0; i < MAX_EMOTICON_FILES; i++) {
+        char filepath[128];
+        snprintf(filepath, sizeof(filepath), "%s%s", 
+                EMOTICON_BASE_PATH, EMOTICON_FILENAMES[i]);
+        filepaths.push_back(filepath);
+    }
+    
+    // 下载
+    downloader_->SetProgressCallback(progress_callback_);
+    esp_err_t result = downloader_->DownloadBatch(server_emoticon_urls_, filepaths);
+    
+    if (result == ESP_OK) {
+        cache_mgr_->SaveDynamicUrls(server_emoticon_urls_, EMOTICON_URL_CACHE_FILE);
+        cached_emoticon_urls_ = server_emoticon_urls_;
+        has_valid_emoticons_ = true;
+        emoticons_download_completed_ = true;
+        
+        ESP_LOGI(TAG, "表情包下载完成");
     }
     
     download_mode_->Exit();

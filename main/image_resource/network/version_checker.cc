@@ -88,6 +88,22 @@ esp_err_t VersionChecker::CheckServer(const char* api_url, ResourceVersions& ver
         ESP_LOGW(TAG, "未找到静态图片URL");
     }
     
+    // 解析表情包URL数组
+    cJSON* emoticon_array = cJSON_GetObjectItem(root, "emoticon_urls");
+    if (emoticon_array != NULL && cJSON_IsArray(emoticon_array)) {
+        versions.emoticon_urls.clear();
+        int array_size = cJSON_GetArraySize(emoticon_array);
+        for (int i = 0; i < array_size; i++) {
+            cJSON* url_item = cJSON_GetArrayItem(emoticon_array, i);
+            if (cJSON_IsString(url_item)) {
+                versions.emoticon_urls.push_back(url_item->valuestring);
+            }
+        }
+        ESP_LOGI(TAG, "解析到 %d 个表情包URL", array_size);
+    } else {
+        ESP_LOGW(TAG, "未找到表情包URL数组");
+    }
+    
     cJSON_Delete(root);
     return ESP_OK;
 }

@@ -2151,8 +2151,6 @@ private:
         }
         
         // 3. 检查是否正在充电或插着电源（充电/插电时不进入节能模式）
-        // 已注释：允许在充电时进入超级省电模式
-        /*
         int battery_level;
         bool charging, discharging;
         if (GetBatteryLevel(battery_level, charging, discharging)) {
@@ -2167,7 +2165,6 @@ private:
                 return false;
             }
         }
-        */
         
         // 4. 检查是否有下载UI可见（图片下载时不进入节能模式）
         if (display_) {
@@ -2860,8 +2857,16 @@ private:
             
             // 资源无需更新，设备就绪，播放开机成功提示音
             auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateIdle) {
-                ESP_LOGI(TAG, "设备就绪，播放开机成功提示音");
+            DeviceState current_state = app.GetDeviceState();
+            // 支持从Starting或Idle状态触发（兼容不同初始化场景）
+            if (current_state == kDeviceStateStarting || current_state == kDeviceStateIdle) {
+                ESP_LOGI(TAG, "设备就绪，播放开机成功提示音（当前状态: %d）", current_state);
+                
+                // 显式调用SetDeviceState来触发空闲定时器的创建
+                // 这会自动调用display->SetIdle(true)并设置状态栏为"待命"
+                ESP_LOGI(TAG, "调用SetDeviceState(kDeviceStateIdle)以启用空闲定时器");
+                app.SetDeviceState(kDeviceStateIdle);
+                
                 app.PlaySound(Lang::Sounds::P3_SUCCESS);
             }
         } else {
@@ -3045,13 +3050,40 @@ private:
             ESP_LOGW(TAG, "暂无logo图片，等待下载...");
         }
         
-        // 立即尝试显示静态图片
+        // 设备启动时提前加载所有表情包（避免切换时阻塞和看门狗超时）
+        ESP_LOGI(TAG, "预加载表情包资源...");
+        iot::LoadAllEmoticons();
+        
+        // 验证加载结果
+        int loaded_count = 0;
+        for (int i = 0; i < 7; i++) {
+            if (iot::g_emoticon_images[i] != nullptr) {
+                loaded_count++;
+            }
+        }
+        ESP_LOGI(TAG, "表情包预加载完成: %d/7", loaded_count);
+        
+        // 立即尝试显示图片（根据模式）
         if (g_image_display_mode == iot::MODE_STATIC && g_static_image) {
             // 如果有静态图片（logo），使用它
             DisplayLockGuard lock(display);
             img_dsc.data = g_static_image;
             lv_img_set_src(img_obj, &img_dsc);
             ESP_LOGI(TAG, "开机立即显示logo图片");
+        } else if (g_image_display_mode == iot::MODE_EMOTICON) {
+            // 表情包模式：显示当前表情
+            iot::EmotionType current_emotion = iot::g_current_emotion;
+            if (current_emotion < iot::EMOTION_UNKNOWN && iot::g_emoticon_images[current_emotion]) {
+                DisplayLockGuard lock(display);
+                img_dsc.data = iot::g_emoticon_images[current_emotion];
+                lv_img_set_src(img_obj, &img_dsc);
+                ESP_LOGI(TAG, "开机立即显示表情包：表情类型 %d", current_emotion);
+            } else {
+                ESP_LOGW(TAG, "表情包数据无效: emotion=%d, valid=%d, ptr=%p", 
+                    current_emotion,
+                    (current_emotion < iot::EMOTION_UNKNOWN),
+                    iot::g_emoticon_images[current_emotion]);
+            }
         } else {
             // 否则尝试使用资源管理器中的图片
             const auto& imageArray = image_manager.GetImageArray();
@@ -3265,10 +3297,15 @@ private:
             
             // 检测到状态变为Speaking
             if (currentState == kDeviceStateSpeaking && previousState != kDeviceStateSpeaking) {
-                pendingAnimationStart = true;
-                stateChangeTime = currentTime;
-                directionForward = true;  // 重置方向为正向
-                ESP_LOGI(TAG, "检测到音频状态改变，准备启动动画");
+                // 只在动画模式下才准备启动动画
+                if (g_image_display_mode == iot::MODE_ANIMATED) {
+                    pendingAnimationStart = true;
+                    stateChangeTime = currentTime;
+                    directionForward = true;  // 重置方向为正向
+                    ESP_LOGI(TAG, "检测到音频状态改变，准备启动动画");
+                } else {
+                    ESP_LOGI(TAG, "检测到音频状态改变，当前为非动画模式，不启动动画");
+                }
             }
             
             // 如果状态不是Speaking，确保isAudioPlaying为false
@@ -3277,8 +3314,8 @@ private:
                 ESP_LOGI(TAG, "退出说话状态，停止动画");
             }
             
-            // 延迟启动动画，等待音频实际开始播放
-            if (pendingAnimationStart && (currentTime - stateChangeTime >= pdMS_TO_TICKS(1200))) {
+            // 延迟启动动画，等待音频实际开始播放（再次确认为动画模式）
+            if (pendingAnimationStart && g_image_display_mode == iot::MODE_ANIMATED && (currentTime - stateChangeTime >= pdMS_TO_TICKS(1200))) {
                 currentIndex = 1;  // 从第二帧开始
                 directionForward = true;  // 确保方向为正向
                 
@@ -3361,17 +3398,37 @@ private:
                 
                 lastUpdateTime = currentTime;
             }
-            // 处理静态图片显示
+            // 处理静态图片或表情包显示
             else if ((!isAudioPlaying && wasAudioPlaying) || 
-                     (g_image_display_mode == iot::MODE_STATIC && currentIndex != 0) || 
+                     (g_image_display_mode == iot::MODE_STATIC) || 
+                     (g_image_display_mode == iot::MODE_EMOTICON) ||
                      (!isAudioPlaying && currentIndex != 0)) {
                 
                 const uint8_t* staticImage = nullptr;
                 bool isStaticMode = false;
+                bool isEmoticonMode = false;
                 
                 if (g_image_display_mode == iot::MODE_STATIC && iot::g_static_image) {
                     staticImage = iot::g_static_image;
                     isStaticMode = true;
+                } else if (g_image_display_mode == iot::MODE_EMOTICON) {
+                    // 表情包模式：显示当前表情
+                    iot::EmotionType current_emotion = iot::g_current_emotion;
+                    if (current_emotion < iot::EMOTION_UNKNOWN && iot::g_emoticon_images[current_emotion]) {
+                        staticImage = iot::g_emoticon_images[current_emotion];
+                        isEmoticonMode = true;
+                    } else {
+                        // 诊断日志
+                        static TickType_t lastDiagTime = 0;
+                        TickType_t now = xTaskGetTickCount();
+                        if (now - lastDiagTime > pdMS_TO_TICKS(5000)) {
+                            ESP_LOGW(TAG, "表情包无法显示: emotion=%d, valid=%d, ptr=%p", 
+                                current_emotion, 
+                                (current_emotion < iot::EMOTION_UNKNOWN),
+                                iot::g_emoticon_images[current_emotion]);
+                            lastDiagTime = now;
+                        }
+                    }
                 } else if (!imageArray.empty()) {
                     currentIndex = 0;
                     staticImage = imageArray[currentIndex];
@@ -3389,7 +3446,8 @@ private:
                     
                     // 只在状态变化时输出日志，避免刷屏
                     if (isStaticMode != lastWasStaticMode || staticImage != lastStaticImage) {
-                        ESP_LOGI(TAG, "显示%s图片", isStaticMode ? "logo" : "初始");
+                        const char* mode_name = isEmoticonMode ? "表情包" : (isStaticMode ? "logo" : "初始");
+                        ESP_LOGI(TAG, "显示%s图片", mode_name);
                         lastWasStaticMode = isStaticMode;
                         lastStaticImage = staticImage;
                     }
