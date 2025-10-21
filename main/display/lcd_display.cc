@@ -1174,7 +1174,7 @@ void LcdDisplay::SetupWeatherClock() {
     // ========== 2. 主时间卡片：时间显示 + 黄历宜忌 + 农历日期 ==========
     // 创建主卡片容器（浅灰色背景，圆角，带阴影）
     lv_obj_t* main_card = lv_obj_create(clock_screen_);
-    lv_obj_set_size(main_card, 220, 95);  // 宽220px，高95px
+    lv_obj_set_size(main_card, 220, 105);  // 宽220px，高105px（增加高度以容纳宜忌内容）
     lv_obj_set_style_bg_color(main_card, lv_color_make(245, 245, 245), 0);  // 浅灰色背景
     lv_obj_set_style_radius(main_card, 15, 0);  // 圆角半径15px
     lv_obj_set_style_shadow_width(main_card, 10, 0);  // 阴影扩散宽度10px
@@ -1194,7 +1194,7 @@ void LcdDisplay::SetupWeatherClock() {
     lv_obj_set_scrollbar_mode(time_row, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(time_row, LV_FLEX_FLOW_ROW);  // 设置为水平flex布局
     lv_obj_set_flex_align(time_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 主轴左对齐，交叉轴居中
-    lv_obj_align(time_row, LV_ALIGN_TOP_LEFT, 10, 5);  // 左上角对齐，右移10px下移5px
+    lv_obj_align(time_row, LV_ALIGN_TOP_LEFT, 10, 0);  // 左上角对齐，右移10px无偏移（宜忌显示上移5px）
     
     // 当前时间显示（大字号，格式：HH:MM）
     clock_time_label_ = lv_label_create(time_row);
@@ -1206,14 +1206,14 @@ void LcdDisplay::SetupWeatherClock() {
     
     // 黄历宜忌的垂直容器（flex列布局）
     lv_obj_t* yi_ji_col = lv_obj_create(time_row);
-    lv_obj_set_size(yi_ji_col, 90, 45);  // 宽90px，高45px
+    lv_obj_set_size(yi_ji_col, 90, 65);  // 宽90px，高55px（增加高度让宜忌两行完整显示）
     lv_obj_set_style_bg_opa(yi_ji_col, LV_OPA_TRANSP, 0);  // 透明背景
     lv_obj_set_style_border_width(yi_ji_col, 0, 0);  // 无边框
     lv_obj_set_style_pad_all(yi_ji_col, 0, 0);  // 无内边距
     lv_obj_set_scrollbar_mode(yi_ji_col, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(yi_ji_col, LV_FLEX_FLOW_COLUMN);  // 设置为垂直flex布局
     lv_obj_set_flex_align(yi_ji_col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);  // 主轴和交叉轴都靠上对齐
-    lv_obj_set_style_pad_row(yi_ji_col, -8, 0);  // 行间距为-5px（紧凑排列）
+    lv_obj_set_style_pad_row(yi_ji_col, -15, 0);  // 行间距为-12px（更紧凑排列）
 
     // "宜"标签（绿色，显示当日宜做之事）
     yi_label_ = lv_label_create(yi_ji_col);
@@ -1306,7 +1306,7 @@ void LcdDisplay::SetupWeatherClock() {
     lv_obj_set_scrollbar_mode(feels_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(feels_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
     lv_obj_set_flex_align(feels_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
-    lv_obj_set_style_pad_row(feels_container, -1, 0);  // 行间距-1px（紧凑排列）
+    lv_obj_set_style_pad_row(feels_container, -4, 0);  // 行间距-4px（更紧凑排列）
     
     // 体感温度标题
     lv_obj_t* feels_title = lv_label_create(feels_container);
@@ -1329,7 +1329,7 @@ void LcdDisplay::SetupWeatherClock() {
     lv_obj_set_scrollbar_mode(humidity_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(humidity_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
     lv_obj_set_flex_align(humidity_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
-    lv_obj_set_style_pad_row(humidity_container, -1, 0);  // 行间距-1px（紧凑排列）
+    lv_obj_set_style_pad_row(humidity_container, -4, 0);  // 行间距-4px（更紧凑排列）
     
     // 湿度标题
     lv_obj_t* humidity_title = lv_label_create(humidity_container);
@@ -1352,7 +1352,7 @@ void LcdDisplay::SetupWeatherClock() {
     lv_obj_set_scrollbar_mode(wind_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(wind_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
     lv_obj_set_flex_align(wind_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
-    lv_obj_set_style_pad_row(wind_container, -1, 0);  // 行间距-1px（紧凑排列）
+    lv_obj_set_style_pad_row(wind_container, -4, 0);  // 行间距-4px（更紧凑排列）
     
     // 风力标题
     lv_obj_t* wind_title = lv_label_create(wind_container);
@@ -1375,7 +1375,7 @@ void LcdDisplay::SetupWeatherClock() {
     lv_obj_set_scrollbar_mode(vis_container, LV_SCROLLBAR_MODE_OFF);  // 禁用滚动条
     lv_obj_set_flex_flow(vis_container, LV_FLEX_FLOW_COLUMN);  // 垂直flex布局
     lv_obj_set_flex_align(vis_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);  // 垂直水平居中
-    lv_obj_set_style_pad_row(vis_container, -1, 0);  // 行间距-1px（紧凑排列）
+    lv_obj_set_style_pad_row(vis_container, -4, 0);  // 行间距-4px（更紧凑排列）
     
     // 风向标题
     lv_obj_t* vis_title = lv_label_create(vis_container);
