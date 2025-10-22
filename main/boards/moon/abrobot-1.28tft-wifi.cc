@@ -1916,6 +1916,48 @@ private:
         gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);   // 设置为输入模式
     }
 
+    // 设置音乐播放器优化回调
+    void SetupMusicPlayerCallbacks() {
+        if (!display_ || !display_->music_player_ui_) {
+            ESP_LOGW(TAG, "音乐播放器UI未初始化，跳过回调设置");
+            return;
+        }
+        
+        // 设置显示前回调：隐藏背景UI元素以减少CPU负担
+        display_->music_player_ui_->SetBeforeShowCallback([this]() {
+            ESP_LOGI(TAG, "🎵 音乐播放器显示前：隐藏背景UI，暂停图片任务");
+            // 暂停图片轮播任务
+            this->SuspendImageTask();
+            // 隐藏字幕容器 - 添加锁保护
+            if (display_->subtitle_container_) {
+                DisplayLockGuard lock(display_);
+                if (lock.IsLocked()) {
+                    lv_obj_add_flag(display_->subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    ESP_LOGW(TAG, "无法获取显示锁以隐藏字幕容器");
+                }
+            }
+        });
+        
+        // 设置隐藏后回调：恢复背景UI元素
+        display_->music_player_ui_->SetAfterHideCallback([this]() {
+            ESP_LOGI(TAG, "🎵 音乐播放器隐藏后：恢复背景UI，恢复图片任务");
+            // 恢复图片轮播任务
+            this->ResumeImageTask();
+            // 恢复字幕容器（如果字幕启用）- 添加锁保护
+            if (display_->subtitle_container_ && display_->IsSubtitleEnabled()) {
+                DisplayLockGuard lock(display_);
+                if (lock.IsLocked()) {
+                    lv_obj_clear_flag(display_->subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    ESP_LOGW(TAG, "无法获取显示锁以恢复字幕容器");
+                }
+            }
+        });
+        
+        ESP_LOGI(TAG, "音乐播放器UI优化回调已注册");
+    }
+
     // 按钮初始化
     void InitializeButtons() {
         boot_btn.OnClick([this]() {
@@ -3256,41 +3298,68 @@ private:
             
             // 原来的音频检测代码已被强力保护机制替代
             
-            // 检查当前是否在时钟页面（tab2）
+            // 检查当前是否在时钟页面（tab2）- 加锁保护LVGL调用
             bool isClockTabActive = false;
-            if (customDisplay && customDisplay->tabview_) {
-                int active_tab = lv_tabview_get_tab_act(customDisplay->tabview_);
-                isClockTabActive = (active_tab == 1);
+            {
+                DisplayLockGuard lock(display);
+                if (lock.IsLocked() && customDisplay && customDisplay->tabview_) {
+                    int active_tab = lv_tabview_get_tab_act(customDisplay->tabview_);
+                    isClockTabActive = (active_tab == 1);
+                } else if (!lock.IsLocked()) {
+                    ESP_LOGW(TAG, "无法获取显示锁以检查标签页状态");
+                }
             }
             
-            // 检查预加载UI是否可见
+            // 检查预加载UI是否可见 - 加锁保护LVGL调用
             bool isPreloadUIVisible = false;
-            if (customDisplay && customDisplay->preload_progress_container_ &&
-                !lv_obj_has_flag(customDisplay->preload_progress_container_, LV_OBJ_FLAG_HIDDEN)) {
-                isPreloadUIVisible = true;
+            {
+                DisplayLockGuard lock(display);
+                if (lock.IsLocked() && customDisplay && customDisplay->preload_progress_container_ &&
+                    !lv_obj_has_flag(customDisplay->preload_progress_container_, LV_OBJ_FLAG_HIDDEN)) {
+                    isPreloadUIVisible = true;
+                } else if (!lock.IsLocked()) {
+                    ESP_LOGW(TAG, "无法获取显示锁以检查预加载UI状态");
+                }
             }
             
             // 时钟页面或预加载UI显示时的处理逻辑
             if (isClockTabActive || isPreloadUIVisible) {
-                DisplayLockGuard lock(display);
-                if (img_container) {
-                    lv_obj_add_flag(img_container, LV_OBJ_FLAG_HIDDEN);
+                {
+                    DisplayLockGuard lock(display);
+                    if (lock.IsLocked() && img_container) {
+                        lv_obj_add_flag(img_container, LV_OBJ_FLAG_HIDDEN);
+                    } else if (!lock.IsLocked()) {
+                        ESP_LOGW(TAG, "无法获取显示锁以隐藏图片容器");
+                    }
                 }
+                // 延迟移到锁外，避免长时间持锁
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             } else {
-                // 主界面显示处理
-                DisplayLockGuard lock(display);
-                if (img_container) {
-                    lv_obj_clear_flag(img_container, LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_align(img_container, LV_ALIGN_CENTER, 0, 0);
-                    lv_obj_set_size(img_container, LV_HOR_RES, LV_VER_RES);
-                    lv_obj_move_to_index(img_container, 0);
-                    
-                    lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
-                    if (img_obj) {
-                        lv_obj_center(img_obj);
-                        lv_obj_move_foreground(img_obj);
+                // 主界面显示处理 - 拆分为多个小锁操作
+                {
+                    DisplayLockGuard lock(display);
+                    if (lock.IsLocked() && img_container) {
+                        lv_obj_clear_flag(img_container, LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_align(img_container, LV_ALIGN_CENTER, 0, 0);
+                        lv_obj_set_size(img_container, LV_HOR_RES, LV_VER_RES);
+                    } else if (!lock.IsLocked()) {
+                        ESP_LOGW(TAG, "无法获取显示锁以显示图片容器");
+                    }
+                }
+                // 第二个锁：处理层级和子对象
+                {
+                    DisplayLockGuard lock(display);
+                    if (lock.IsLocked() && img_container) {
+                        lv_obj_move_to_index(img_container, 0);
+                        
+                        lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
+                        if (img_obj) {
+                            lv_obj_center(img_obj);
+                            lv_obj_move_foreground(img_obj);
+                        }
+                    } else if (!lock.IsLocked()) {
+                        ESP_LOGW(TAG, "无法获取显示锁以处理图片层级");
                     }
                 }
             }
@@ -3337,14 +3406,20 @@ private:
                     // **优化：预先准备数据，减少锁持有时间 - 方案3实施**
                     if (currentImage) {
                         DisplayLockGuard lock(display);
-                        lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
-                        if (img_obj) {
-                            img_dsc.data = currentImage;  // 直接使用原始图像数据
-                            lv_img_set_src(img_obj, &img_dsc);
+                        if (lock.IsLocked()) {
+                            lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
+                            if (img_obj) {
+                                img_dsc.data = currentImage;  // 直接使用原始图像数据
+                                lv_img_set_src(img_obj, &img_dsc);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "无法获取显示锁以启动动画");
                         }
                     }
                     
-                    ESP_LOGI(TAG, "开始播放动画，与音频同步");
+                    if (currentImage) {
+                        ESP_LOGI(TAG, "开始播放动画，与音频同步");
+                    }
                     
                     lastUpdateTime = currentTime;
                     isAudioPlaying = true;         
@@ -3388,10 +3463,14 @@ private:
                     // **优化：预先准备数据，减少锁持有时间 - 方案3实施**
                     if (currentImage) {
                         DisplayLockGuard lock(display);
-                        lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
-                        if (img_obj) {
-                            img_dsc.data = currentImage;  // 直接使用原始图像数据
-                            lv_img_set_src(img_obj, &img_dsc);
+                        if (lock.IsLocked()) {
+                            lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
+                            if (img_obj) {
+                                img_dsc.data = currentImage;  // 直接使用原始图像数据
+                                lv_img_set_src(img_obj, &img_dsc);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "无法获取显示锁以播放动画帧");
                         }
                     }
                 }
@@ -3438,18 +3517,22 @@ private:
                 // **优化：预先准备数据，减少锁持有时间 - 方案3实施**
                 if (staticImage) {
                     DisplayLockGuard lock(display);
-                    lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
-                    if (img_obj) {
-                        img_dsc.data = staticImage;  // 直接使用原始图像数据
-                        lv_img_set_src(img_obj, &img_dsc);
-                    }
-                    
-                    // 只在状态变化时输出日志，避免刷屏
-                    if (isStaticMode != lastWasStaticMode || staticImage != lastStaticImage) {
-                        const char* mode_name = isEmoticonMode ? "表情包" : (isStaticMode ? "logo" : "初始");
-                        ESP_LOGI(TAG, "显示%s图片", mode_name);
-                        lastWasStaticMode = isStaticMode;
-                        lastStaticImage = staticImage;
+                    if (lock.IsLocked()) {
+                        lv_obj_t* img_obj = lv_obj_get_child(img_container, 0);
+                        if (img_obj) {
+                            img_dsc.data = staticImage;  // 直接使用原始图像数据
+                            lv_img_set_src(img_obj, &img_dsc);
+                        }
+                        
+                        // 只在状态变化时输出日志，避免刷屏
+                        if (isStaticMode != lastWasStaticMode || staticImage != lastStaticImage) {
+                            const char* mode_name = isEmoticonMode ? "表情包" : (isStaticMode ? "logo" : "初始");
+                            ESP_LOGI(TAG, "显示%s图片", mode_name);
+                            lastWasStaticMode = isStaticMode;
+                            lastStaticImage = staticImage;
+                        }
+                    } else {
+                        ESP_LOGW(TAG, "无法获取显示锁以显示静态/表情包图片");
                     }
                     
                     pendingAnimationStart = false;
@@ -3460,8 +3543,8 @@ private:
             wasAudioPlaying = isAudioPlaying;
             previousState = currentState;
             
-            // 短暂延时
-            vTaskDelay(pdMS_TO_TICKS(10));
+            // 延迟增加到50ms，给IDLE任务更多重置看门狗的机会
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
         
         // 资源检查现在由OTA完成后的回调处理，不再使用定时器
@@ -3675,6 +3758,10 @@ public:
         InitializeCodecI2c();        // 初始化编解码器I2C总线
         InitializeSpi();             // 初始化SPI总线
         InitializeLcdDisplay();      // 初始化LCD显示器
+        
+        // 设置音乐播放器UI的优化回调
+        SetupMusicPlayerCallbacks();
+        
         // 延迟1秒点亮背光，避免瞬间强光/等待屏幕就绪
         vTaskDelay(pdMS_TO_TICKS(1500));
         GetBacklight()->RestoreBrightness();

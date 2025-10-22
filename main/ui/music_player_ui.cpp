@@ -147,6 +147,18 @@ music_player_error_t MusicPlayerUI::Show(uint32_t duration_ms) {
         return MUSIC_PLAYER_OK;
     }
     
+    // 调用显示前回调，隐藏背景UI以减少渲染负担
+    if (before_show_callback_) {
+        ESP_LOGI(TAG, "调用显示前回调，隐藏背景UI元素");
+        before_show_callback_();
+    }
+    
+    // 获取LVGL锁，防止与LVGL渲染任务产生竞争条件
+    if (!lvgl_port_lock(1000)) {
+        ESP_LOGE(TAG, "Failed to acquire LVGL lock");
+        return MUSIC_PLAYER_ERR_LVGL_INIT;
+    }
+    
     // 显示容器，使用更安全的方式
     if (container_) {
         lv_obj_clear_flag(container_, LV_OBJ_FLAG_HIDDEN);
@@ -186,6 +198,9 @@ music_player_error_t MusicPlayerUI::Show(uint32_t duration_ms) {
     
     visible_ = true;
     
+    // 释放LVGL锁
+    lvgl_port_unlock();
+    
     // 最后再让出一次CPU时间，确保UI完全渲染
     taskYIELD();
     
@@ -208,6 +223,12 @@ music_player_error_t MusicPlayerUI::Hide() {
         return MUSIC_PLAYER_OK;
     }
     
+    // 获取LVGL锁
+    if (!lvgl_port_lock(1000)) {
+        ESP_LOGE(TAG, "Failed to acquire LVGL lock in Hide()");
+        return MUSIC_PLAYER_ERR_LVGL_INIT;
+    }
+    
     // 隐藏容器
     lv_obj_add_flag(container_, LV_OBJ_FLAG_HIDDEN);
     
@@ -227,9 +248,18 @@ music_player_error_t MusicPlayerUI::Hide() {
     
     visible_ = false;
     
+    // 释放LVGL锁
+    lvgl_port_unlock();
+    
     // 调用关闭回调
     if (close_callback_) {
         close_callback_();
+    }
+    
+    // 调用隐藏后回调，恢复背景UI
+    if (after_hide_callback_) {
+        ESP_LOGI(TAG, "调用隐藏后回调，恢复背景UI元素");
+        after_hide_callback_();
     }
     
     ESP_LOGI(TAG, "Music player UI hidden");
@@ -275,6 +305,12 @@ music_player_error_t MusicPlayerUI::SetSongInfo(const char* title, const char* a
         return MUSIC_PLAYER_ERR_NOT_INIT;
     }
     
+    // 获取LVGL锁
+    if (!lvgl_port_lock(500)) {
+        ESP_LOGE(TAG, "Failed to acquire LVGL lock in SetSongInfo()");
+        return MUSIC_PLAYER_ERR_LVGL_INIT;
+    }
+    
     if (title && song_title_label_) {
         lv_label_set_text(song_title_label_, title);
     }
@@ -282,6 +318,9 @@ music_player_error_t MusicPlayerUI::SetSongInfo(const char* title, const char* a
     if (artist && artist_label_) {
         lv_label_set_text(artist_label_, artist);
     }
+    
+    // 释放LVGL锁
+    lvgl_port_unlock();
     
     ESP_LOGI(TAG, "Song info updated: %s - %s", title ? title : "Unknown", artist ? artist : "Unknown");
     
@@ -355,6 +394,22 @@ performance_stats_t MusicPlayerUI::GetPerformanceStats() const {
 void MusicPlayerUI::SetCloseCallback(std::function<void()> callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     close_callback_ = callback;
+}
+
+/**
+ * @brief 设置显示前回调函数
+ */
+void MusicPlayerUI::SetBeforeShowCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    before_show_callback_ = callback;
+}
+
+/**
+ * @brief 设置隐藏后回调函数
+ */
+void MusicPlayerUI::SetAfterHideCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    after_hide_callback_ = callback;
 }
 
 /**

@@ -5,6 +5,7 @@
 #include <src/misc/lv_timer_private.h>
 #include <esp_timer.h>
 #include <esp_log.h>
+#include <esp_lvgl_port.h>
 #include <cJSON.h>
 #include <functional>
 #include <vector>
@@ -154,6 +155,18 @@ public:
     void SetCloseCallback(std::function<void()> callback);
 
     /**
+     * @brief 设置显示前回调函数（用于隐藏背景UI）
+     * @param callback 回调函数
+     */
+    void SetBeforeShowCallback(std::function<void()> callback);
+
+    /**
+     * @brief 设置隐藏后回调函数（用于恢复背景UI）
+     * @param callback 回调函数
+     */
+    void SetAfterHideCallback(std::function<void()> callback);
+
+    /**
      * @brief 检查是否已初始化
      * @return true表示已初始化
      */
@@ -203,6 +216,8 @@ private:
     
     // 回调函数
     std::function<void()> close_callback_;
+    std::function<void()> before_show_callback_;   // 显示前回调（隐藏背景UI）
+    std::function<void()> after_hide_callback_;    // 隐藏后回调（恢复背景UI）
     
     // 线程安全
     mutable std::mutex mutex_;

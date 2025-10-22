@@ -98,6 +98,18 @@ MESSAGE_TEMPLATES = {
                 {"name": "ImageDisplay", "method": "SetStaticMode", "parameters": {}}
             ]
         },
+        "图片显示 - 表情包模式": {
+            "type": "iot",
+            "commands": [
+                {"name": "ImageDisplay", "method": "SetEmoticonMode", "parameters": {}}
+            ]
+        },
+        "图片显示 - 切换显示模式": {
+            "type": "iot",
+            "commands": [
+                {"name": "ImageDisplay", "method": "ToggleDisplayMode", "parameters": {}}
+            ]
+        },
         "音乐播放器 - 显示": {
             "type": "iot",
             "commands": [
@@ -108,6 +120,36 @@ MESSAGE_TEMPLATES = {
             "type": "iot",
             "commands": [
                 {"name": "MusicPlayer", "method": "Hide", "parameters": {}}
+            ]
+        },
+        "灯 - 打开": {
+            "type": "iot",
+            "commands": [
+                {"name": "Lamp", "method": "TurnOn", "parameters": {}}
+            ]
+        },
+        "灯 - 关闭": {
+            "type": "iot",
+            "commands": [
+                {"name": "Lamp", "method": "TurnOff", "parameters": {}}
+            ]
+        },
+        "字幕控制 - 显示字幕": {
+            "type": "iot",
+            "commands": [
+                {"name": "SubtitleControl", "method": "ShowSubtitle", "parameters": {}}
+            ]
+        },
+        "字幕控制 - 隐藏字幕": {
+            "type": "iot",
+            "commands": [
+                {"name": "SubtitleControl", "method": "HideSubtitle", "parameters": {}}
+            ]
+        },
+        "字幕控制 - 切换显示状态": {
+            "type": "iot",
+            "commands": [
+                {"name": "SubtitleControl", "method": "ToggleSubtitle", "parameters": {}}
             ]
         }
     },
