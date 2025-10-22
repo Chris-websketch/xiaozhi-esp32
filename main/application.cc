@@ -213,12 +213,10 @@ void Application::CheckNewVersion() {
 
         if (ota_.HasNewVersion()) {
             Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "happy", Lang::Sounds::P3_UPGRADE);
-            // Wait for the chat state to be idle
-            do {
-                vTaskDelay(pdMS_TO_TICKS(3000));
-            } while (GetDeviceState() != kDeviceStateIdle);
+            //等待提示音播放完毕后再开始升级
+            vTaskDelay(pdMS_TO_TICKS(3000));
 
-            // Use main task to do the upgrade, not cancelable
+            // 使用主要任务进行升级，无法取消。
             Schedule([this, display]() {
                 SetDeviceState(kDeviceStateUpgrading);
                 
