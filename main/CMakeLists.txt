@@ -218,6 +218,12 @@ elseif(CONFIG_LANGUAGE_EN_US)
     set(LANG_DIR "en-US")
 elseif(CONFIG_LANGUAGE_JA_JP)
     set(LANG_DIR "ja-JP")
+elseif(CONFIG_LANGUAGE_KO_KR)
+    set(LANG_DIR "ko-KR")
+elseif(CONFIG_LANGUAGE_TH_TH)
+    set(LANG_DIR "th-TH")
+elseif(CONFIG_LANGUAGE_VI_VN)
+    set(LANG_DIR "vi-VN")
 endif()
 
 # 定义生成路径

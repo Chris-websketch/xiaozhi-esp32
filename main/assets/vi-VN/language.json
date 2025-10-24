@@ -1,0 +1,52 @@
+{
+    "language": {
+        "type": "vi-VN"
+    },
+    "strings": {
+        "WARNING":"Cảnh báo",
+        "INFO":"Thông tin",
+        "ERROR":"Lỗi",
+        "VERSION": "Phiên bản ",
+        "LOADING_PROTOCOL":"Đang tải giao thức...",
+        "INITIALIZING":"Đang khởi tạo...",
+        "PIN_ERROR":"Vui lòng lắp thẻ SIM",
+        "REG_ERROR":"Không thể truy cập mạng, vui lòng kiểm tra trạng thái thẻ dữ liệu",
+        "DETECTING_MODULE":"Đang phát hiện mô-đun...",
+        "REGISTERING_NETWORK":"Đang chờ mạng...",
+
+        "STANDBY":"Chờ",
+        "LOGGING_IN_SERVER":"Đang đăng nhập máy chủ",
+        "CONNECT_TO":"Kết nối ",
+        "CONNECTING":"Đang kết nối...",
+        "CONNECTED_TO":"Đã kết nối ",
+
+        "LISTENING":"Đang lắng nghe...",
+        "SPEAKING":"Đang nói...",
+
+        "SERVER_NOT_FOUND":"Đang tìm dịch vụ khả dụng",
+        "SERVER_NOT_CONNECTED":"Không thể kết nối dịch vụ, vui lòng thử lại sau",
+        "SERVER_TIMEOUT":"Hết thời gian chờ phản hồi",
+        "SERVER_ERROR":"Kết nối thất bại, vui lòng kiểm tra mạng và khởi động lại thiết bị",
+
+        "CONNECT_TO_HOTSPOT":"Vui lòng sử dụng camera điện thoại quét mã QR để kết nối điểm phát hoặc kết nối thủ công ",
+        "ACCESS_VIA_BROWSER":"，truy cập qua trình duyệt ",
+        "WIFI_CONFIG_MODE":"Chế độ cấu hình mạng",
+        "ENTERING_WIFI_CONFIG_MODE":"Đang vào chế độ cấu hình mạng...",
+        "SCANNING_WIFI":"Đang quét Wi-Fi...",
+
+        "NEW_VERSION": "Phiên bản mới ",
+        "OTA_UPGRADE":"Nâng cấp OTA",
+        "UPGRADING":"Đang nâng cấp hệ thống, nếu không hiển thị tiến trình nâng cấp, vui lòng nhấn nhẹ nút trên...",
+        "UPGRADE_FAILED":"Nâng cấp thất bại",
+        "ACTIVATION":"Kích hoạt thiết bị",
+
+        "BATTERY_LOW":"Pin yếu",
+        "BATTERY_CHARGING":"Đang sạc",
+        "BATTERY_FULL":"Pin đầy",
+        "BATTERY_NEED_CHARGE":"Pin yếu, vui lòng sạc",
+
+        "VOLUME":"Âm lượng ",
+        "MUTED":"Đã tắt tiếng",
+        "MAX_VOLUME":"Âm lượng tối đa"
+    }
+}

@@ -1,0 +1,52 @@
+{
+    "language": {
+        "type": "ko-KR"
+    },
+    "strings": {
+        "WARNING":"경고",
+        "INFO":"정보",
+        "ERROR":"오류",
+        "VERSION": "버전 ",
+        "LOADING_PROTOCOL":"프로토콜 로딩 중...",
+        "INITIALIZING":"초기화 중...",
+        "PIN_ERROR":"SIM 카드를 삽입하세요",
+        "REG_ERROR":"네트워크에 접속할 수 없습니다. 데이터 카드 상태를 확인하세요",
+        "DETECTING_MODULE":"모듈 감지 중...",
+        "REGISTERING_NETWORK":"네트워크 대기 중...",
+
+        "STANDBY":"대기",
+        "LOGGING_IN_SERVER":"서버 로그인 중",
+        "CONNECT_TO":"연결 ",
+        "CONNECTING":"연결 중...",
+        "CONNECTED_TO":"연결됨 ",
+
+        "LISTENING":"듣는 중...",
+        "SPEAKING":"말하는 중...",
+
+        "SERVER_NOT_FOUND":"사용 가능한 서비스를 찾는 중",
+        "SERVER_NOT_CONNECTED":"서비스에 연결할 수 없습니다. 나중에 다시 시도하세요",
+        "SERVER_TIMEOUT":"응답 대기 시간 초과",
+        "SERVER_ERROR":"연결 실패. 네트워크를 확인하고 장치를 다시 시작하세요",
+
+        "CONNECT_TO_HOTSPOT":"휴대폰 카메라로 QR 코드를 스캔하여 핫스팟에 연결하거나 수동으로 연결하세요 ",
+        "ACCESS_VIA_BROWSER":"，브라우저로 접속 ",
+        "WIFI_CONFIG_MODE":"네트워크 구성 모드",
+        "ENTERING_WIFI_CONFIG_MODE":"네트워크 구성 모드 진입 중...",
+        "SCANNING_WIFI":"Wi-Fi 스캔 중...",
+
+        "NEW_VERSION": "새 버전 ",
+        "OTA_UPGRADE":"OTA 업그레이드",
+        "UPGRADING":"시스템 업그레이드 중, 업그레이드 진행률이 표시되지 않으면 위쪽 버튼을 가볍게 누르세요...",
+        "UPGRADE_FAILED":"업그레이드 실패",
+        "ACTIVATION":"장치 활성화",
+
+        "BATTERY_LOW":"배터리 부족",
+        "BATTERY_CHARGING":"충전 중",
+        "BATTERY_FULL":"배터리 완충",
+        "BATTERY_NEED_CHARGE":"배터리 부족, 충전하세요",
+
+        "VOLUME":"볼륨 ",
+        "MUTED":"음소거됨",
+        "MAX_VOLUME":"최대 볼륨"
+    }
+}
