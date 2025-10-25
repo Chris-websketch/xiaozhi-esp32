@@ -10,6 +10,7 @@
 #include <errno.h>
 #include "config/resource_config.h"
 #include "storage/spiffs_manager.h"
+#include "assets/lang_config.h"
 #include <stdio.h>
 
 #define TAG "PackedLoader"
@@ -44,7 +45,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     ESP_LOGI(TAG, "优化完成，开始打包");
     
     if (callback) {
-        callback(0, 100, "正在检查资源完整性...");
+        callback(0, 100, Lang::Strings::CHECKING_RESOURCE_INTEGRITY);
     }
     
     // 检查源文件
@@ -71,7 +72,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
     int last_percent = -1;
     
     if (callback) {
-        callback(0, 100, "正在检查资源完整性...");
+        callback(0, 100, Lang::Strings::CHECKING_RESOURCE_INTEGRITY);
     }
     
     uint8_t* buf = (uint8_t*)heap_caps_malloc(chunk, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -157,7 +158,7 @@ bool PackedLoader::BuildPacked(const std::vector<std::string>& source_files,
                 int percent = (int)((processed_bytes * 100) / total_bytes);
                 if (percent > 100) percent = 100;
                 if (percent != last_percent) {
-                    callback(percent, 100, "正在检查资源完整性");
+                    callback(percent, 100, Lang::Strings::CHECKING_RESOURCE_INTEGRITY_SHORT);
                     last_percent = percent;
                 }
             }

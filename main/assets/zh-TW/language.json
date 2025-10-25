@@ -47,6 +47,27 @@
 
         "VOLUME": "音量 ",
         "MUTED": "已靜音",
-        "MAX_VOLUME": "最大音量"
+        "MAX_VOLUME": "最大音量",
+
+        "SCAN_QR_CODE": "請使用手機相機掃碼",
+        "DEVICE_REBOOT_SOON": "即將重啟...",
+        "CHARGING_DOCK_DISCONNECTED": "充電底座已斷開\n螢幕已旋轉顯示",
+        "CONNECT_CHARGING_DOCK": "請連接官方充電底座",
+        "SCREEN_ROTATED": "螢幕已旋轉",
+        
+        "PREPARING_DOWNLOAD_RESOURCES": "正在準備下載資源...",
+        "DOWNLOAD_COMPLETE": "下載完成",
+        "DOWNLOADING_RESOURCES": "正在下載資源",
+        "CLEANING_OLD_FILES": "正在清理舊檔案",
+        "PREPARING_DOWNLOAD": "正在準備下載",
+        "PREPARING_DOWNLOAD_SIMPLE": "正在準備下載...",
+        "PREPARING_DOWNLOAD_LOGO": "正在準備下載Logo...",
+        "PREPARING_DOWNLOAD_EMOTICONS": "正在準備下載表情包...",
+        "CHECKING_RESOURCE_INTEGRITY": "正在檢查資源完整性...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT": "正在檢查資源完整性",
+
+        "WELCOME_MESSAGE_CONNECTING": "歡迎使用獨众AI伴侣\n設備連接網路中\n",
+        "WELCOME_MESSAGE_INITIALIZING": "歡迎使用獨众AI伴侣\n正在初始化...",
+        "PLEASE_CONFIGURE_NETWORK": "請配置網路連接"
     }
 }

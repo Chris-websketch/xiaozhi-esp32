@@ -63,7 +63,7 @@ void WifiBoard::EnterWifiConfigMode() {
 #endif
     
     // 播报配置 WiFi 的提示
-    application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_CCC_PW);
+    application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
     
     // 显示WiFi配网二维码
     auto display = Board::GetInstance().GetDisplay();

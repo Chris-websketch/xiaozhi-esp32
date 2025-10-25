@@ -1536,7 +1536,7 @@ private:
         lv_obj_set_style_text_align(message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(message_label_, lv_pct(80));
         lv_label_set_long_mode(message_label_, LV_LABEL_LONG_WRAP);
-        lv_label_set_text(message_label_, "正在准备下载资源...");
+        lv_label_set_text(message_label_, Lang::Strings::PREPARING_DOWNLOAD_RESOURCES);
         // 将状态文字放在进度条下方
         lv_obj_align_to(message_label_, progress_arc, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
         
@@ -1674,14 +1674,14 @@ private:
                 // 简化消息内容，只显示关键信息
                 if (strstr(message, "下载") != nullptr) {
                     if (progress == 100) {
-                        lv_label_set_text(message_label_, "下载完成");
+                        lv_label_set_text(message_label_, Lang::Strings::DOWNLOAD_COMPLETE);
                     } else {
-                        lv_label_set_text(message_label_, "正在下载资源");
+                        lv_label_set_text(message_label_, Lang::Strings::DOWNLOADING_RESOURCES);
                     }
                 } else if (strstr(message, "删除") != nullptr) {
-                    lv_label_set_text(message_label_, "正在清理旧文件");
+                    lv_label_set_text(message_label_, Lang::Strings::CLEANING_OLD_FILES);
                 } else if (strstr(message, "准备") != nullptr) {
-                    lv_label_set_text(message_label_, "正在准备下载");
+                    lv_label_set_text(message_label_, Lang::Strings::PREPARING_DOWNLOAD);
                 } else {
                     // 保持原始消息，但限制长度
                     char simplified_msg[64];
@@ -1878,7 +1878,7 @@ private:
                                     ESP_LOGI(TAG, "USB已断开，自动恢复屏幕");
                                     self->RotateScreen(false);
                                     if (self->display_) {
-                                        self->display_->ShowCenterNotification("充电底座已断开\n屏幕已旋转显示", 3000);
+                                        self->display_->ShowCenterNotification(Lang::Strings::CHARGING_DOCK_DISCONNECTED, 3000);
                                     }
                                 }
                             }
@@ -2101,7 +2101,7 @@ private:
             if (!usb_connected) {
                 ESP_LOGW(TAG, "USB未插入，屏幕旋转功能仅在连接充电底座时可用");
                 if (display_) {
-                    display_->ShowCenterNotification("请连接官方充电底座", 3000);
+                    display_->ShowCenterNotification(Lang::Strings::CONNECT_CHARGING_DOCK, 3000);
                 }
                 return;
             }
@@ -2117,8 +2117,7 @@ private:
             
             // 显示操作反馈
             if (display_) {
-                const char* msg = new_rotation_state ? "屏幕已旋转" : "屏幕已旋转";
-                display_->ShowCenterNotification(msg, 3000);
+                display_->ShowCenterNotification(Lang::Strings::SCREEN_ROTATED, 3000);
             }
             
             ESP_LOGI(TAG, "屏幕旋转状态: %s", new_rotation_state ? "已旋转90度" : "正常");
@@ -3797,13 +3796,13 @@ public:
         // 检查WiFi连接状态
         if (!wifi_station.IsConnected()) {
             // 显示配网提示
-            display_->SetChatMessage("system", "欢迎使用独众AI伴侣\n设备连接网络中\n");
+            display_->SetChatMessage("system", Lang::Strings::WELCOME_MESSAGE_CONNECTING);
             
             // 将此消息也添加到通知区域，确保用户能看到
-            display_->ShowNotification("请配置网络连接", 0);
+            display_->ShowNotification(Lang::Strings::PLEASE_CONFIGURE_NETWORK, 0);
         } else {
             // 已连接网络，显示正常欢迎信息
-            display_->SetChatMessage("system", "欢迎使用独众AI伴侣\n正在初始化...");
+            display_->SetChatMessage("system", Lang::Strings::WELCOME_MESSAGE_INITIALIZING);
         }
     }
 

@@ -42,7 +42,9 @@ def generate_header(input_path, output_path):
     strings = []
     sounds = []
     for key, value in data['strings'].items():
-        value = value.replace('"', '\\"')
+        value = value.replace('\\', '\\\\')  # 先转义反斜杠
+        value = value.replace('"', '\\"')    # 转义双引号
+        value = value.replace('\n', '\\n')   # 转义换行符
         strings.append(f'        constexpr const char* {key.upper()} = "{value}";')
 
     # 生成音效常量

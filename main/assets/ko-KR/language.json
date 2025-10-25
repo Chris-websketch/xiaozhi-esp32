@@ -45,8 +45,29 @@
         "BATTERY_FULL":"배터리 완충",
         "BATTERY_NEED_CHARGE":"배터리 부족, 충전하세요",
 
-        "VOLUME":"볼륨 ",
-        "MUTED":"음소거됨",
-        "MAX_VOLUME":"최대 볼륨"
+        "VOLUME": "볼륨 ",
+        "MUTED": "무음",
+        "MAX_VOLUME": "최대 볼륨",
+
+        "SCAN_QR_CODE": "카메라로 스캔하세요",
+        "DEVICE_REBOOT_SOON": "재부팅 중...",
+        "CHARGING_DOCK_DISCONNECTED": "충전 도크 연결 해제\n화면이 회전되었습니다",
+        "CONNECT_CHARGING_DOCK": "충전 도크를 연결하세요",
+        "SCREEN_ROTATED": "화면이 회전되었습니다",
+        
+        "PREPARING_DOWNLOAD_RESOURCES": "리소스 다운로드 준비 중...",
+        "DOWNLOAD_COMPLETE": "다운로드 완료",
+        "DOWNLOADING_RESOURCES": "리소스 다운로드 중",
+        "CLEANING_OLD_FILES": "이전 파일 삭제 중",
+        "PREPARING_DOWNLOAD": "다운로드 준비 중",
+        "PREPARING_DOWNLOAD_SIMPLE": "다운로드 준비 중...",
+        "PREPARING_DOWNLOAD_LOGO": "로고 다운로드 준비 중...",
+        "PREPARING_DOWNLOAD_EMOTICONS": "이모티콘 다운로드 준비 중...",
+        "CHECKING_RESOURCE_INTEGRITY": "리소스 무결성 확인 중...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT": "리소스 무결성 확인 중",
+
+        "WELCOME_MESSAGE_CONNECTING": "AI 컴패니언에 오신 것을 환영합니다\n네트워크 연결 중\n",
+        "WELCOME_MESSAGE_INITIALIZING": "AI 컴패니언에 오신 것을 환영합니다\n초기화 중...",
+        "PLEASE_CONFIGURE_NETWORK": "네트워크를 구성하세요"
     }
 }

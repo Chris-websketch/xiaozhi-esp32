@@ -15,6 +15,7 @@
 #include "image_resource/utils/download_mode.h"
 #include "image_resource/utils/cleanup_helper.h"
 #include "config/resource_config.h"
+#include "assets/lang_config.h"
 
 #define TAG "ImageResManager"
 
@@ -422,7 +423,7 @@ esp_err_t ImageResourceManager::DownloadImages() {
     
     // 显示下载准备UI
     if (progress_callback_) {
-        progress_callback_(0, 100, "正在准备下载...");
+        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_SIMPLE);
     }
     
     download_mode_->Enter();
@@ -466,7 +467,7 @@ esp_err_t ImageResourceManager::DownloadLogo() {
     
     // 显示下载准备UI
     if (progress_callback_) {
-        progress_callback_(0, 100, "正在准备下载Logo...");
+        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_LOGO);
     }
     
     download_mode_->Enter();
@@ -500,7 +501,7 @@ esp_err_t ImageResourceManager::DownloadEmoticons() {
     ESP_LOGI(TAG, "开始下载表情包...");
     
     if (progress_callback_) {
-        progress_callback_(0, 100, "正在准备下载表情包...");
+        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_EMOTICONS);
     }
     
     download_mode_->Enter();

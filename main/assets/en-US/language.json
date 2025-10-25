@@ -48,6 +48,27 @@
 
         "VOLUME": "Volume ",
         "MUTED": "Muted",
-        "MAX_VOLUME": "Max volume"
+        "MAX_VOLUME": "Max volume",
+
+        "SCAN_QR_CODE": "Scan with camera",
+        "DEVICE_REBOOT_SOON": "Rebooting...",
+        "CHARGING_DOCK_DISCONNECTED": "Charging dock disconnected\nScreen rotated",
+        "CONNECT_CHARGING_DOCK": "Please connect charging dock",
+        "SCREEN_ROTATED": "Screen rotated",
+        
+        "PREPARING_DOWNLOAD_RESOURCES": "Preparing to download resources...",
+        "DOWNLOAD_COMPLETE": "Download complete",
+        "DOWNLOADING_RESOURCES": "Downloading resources",
+        "CLEANING_OLD_FILES": "Cleaning old files",
+        "PREPARING_DOWNLOAD": "Preparing download",
+        "PREPARING_DOWNLOAD_SIMPLE": "Preparing download...",
+        "PREPARING_DOWNLOAD_LOGO": "Preparing to download logo...",
+        "PREPARING_DOWNLOAD_EMOTICONS": "Preparing to download emoticons...",
+        "CHECKING_RESOURCE_INTEGRITY": "Checking resource integrity...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT": "Checking resource integrity",
+
+        "WELCOME_MESSAGE_CONNECTING": "Welcome to AI Companion\nConnecting to network\n",
+        "WELCOME_MESSAGE_INITIALIZING": "Welcome to AI Companion\nInitializing...",
+        "PLEASE_CONFIGURE_NETWORK": "Please configure network"
     }
 }

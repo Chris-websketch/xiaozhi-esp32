@@ -45,8 +45,29 @@
         "BATTERY_FULL":"Pin đầy",
         "BATTERY_NEED_CHARGE":"Pin yếu, vui lòng sạc",
 
-        "VOLUME":"Âm lượng ",
-        "MUTED":"Đã tắt tiếng",
-        "MAX_VOLUME":"Âm lượng tối đa"
+        "VOLUME": "Âm lượng ",
+        "MUTED": "Tắt tiếng",
+        "MAX_VOLUME": "Âm lượng tối đa",
+
+        "SCAN_QR_CODE": "Quét bằng camera",
+        "DEVICE_REBOOT_SOON": "Đang khởi động lại...",
+        "CHARGING_DOCK_DISCONNECTED": "Đế sạc đã ngắt kết nối\nMàn hình đã xoay",
+        "CONNECT_CHARGING_DOCK": "Vui lòng kết nối đế sạc",
+        "SCREEN_ROTATED": "Màn hình đã xoay",
+        
+        "PREPARING_DOWNLOAD_RESOURCES": "Đang chuẩn bị tải xuống tài nguyên...",
+        "DOWNLOAD_COMPLETE": "Tải xuống hoàn tất",
+        "DOWNLOADING_RESOURCES": "Đang tải xuống tài nguyên",
+        "CLEANING_OLD_FILES": "Đang xóa tệp cũ",
+        "PREPARING_DOWNLOAD": "Đang chuẩn bị tải xuống",
+        "PREPARING_DOWNLOAD_SIMPLE": "Đang chuẩn bị tải xuống...",
+        "PREPARING_DOWNLOAD_LOGO": "Đang chuẩn bị tải xuống logo...",
+        "PREPARING_DOWNLOAD_EMOTICONS": "Đang chuẩn bị tải xuống biểu tượng cảm xúc...",
+        "CHECKING_RESOURCE_INTEGRITY": "Đang kiểm tra tính toàn vẹn của tài nguyên...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT": "Đang kiểm tra tính toàn vẹn của tài nguyên",
+
+        "WELCOME_MESSAGE_CONNECTING": "Chào mừng đến với AI Companion\nĐang kết nối mạng\n",
+        "WELCOME_MESSAGE_INITIALIZING": "Chào mừng đến với AI Companion\nĐang khởi tạo...",
+        "PLEASE_CONFIGURE_NETWORK": "Vui lòng cấu hình mạng"
     }
 }

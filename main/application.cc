@@ -871,7 +871,7 @@ void Application::OnMqttNotification(const cJSON* root) {
                 }
                 auto display = Board::GetInstance().GetDisplay();
                 if (display) {
-                    display->ShowNotification("即将重启...", 1000);
+                    display->ShowNotification(Lang::Strings::DEVICE_REBOOT_SOON, 1000);
                 }
                 Schedule([this, delay_ms]() {
                     vTaskDelay(pdMS_TO_TICKS(delay_ms));

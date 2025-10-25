@@ -490,7 +490,7 @@ void Display::ShowQRCode(const char* data, int x, int y, int size) {
     
     qrcode_hint_label_ = lv_label_create(screen);
     if (qrcode_hint_label_ != nullptr) {
-        lv_label_set_text(qrcode_hint_label_, "请使用手机相机扫码");
+        lv_label_set_text(qrcode_hint_label_, Lang::Strings::SCAN_QR_CODE);
         lv_obj_set_style_text_color(qrcode_hint_label_, lv_color_black(), 0);  // 改为黑色
         lv_obj_set_style_text_align(qrcode_hint_label_, LV_TEXT_ALIGN_CENTER, 0);
         

@@ -47,6 +47,27 @@
 
         "VOLUME":"ระดับเสียง ",
         "MUTED":"ปิดเสียงแล้ว",
-        "MAX_VOLUME":"ระดับเสียงสูงสุด"
+        "MAX_VOLUME":"ระดับเสียงสูงสุด",
+
+        "SCAN_QR_CODE":"กรุณาใช้กล้องมือถือสแกนโค้ด",
+        "DEVICE_REBOOT_SOON":"กำลังรีบูต...",
+        "CHARGING_DOCK_DISCONNECTED":"ฐานชาร์จถูกถอดออก\nหน้าจอหมุนแล้ว",
+        "CONNECT_CHARGING_DOCK":"กรุณาเชื่อมต่อฐานชาร์จ",
+        "SCREEN_ROTATED":"หน้าจอหมุนแล้ว",
+        
+        "PREPARING_DOWNLOAD_RESOURCES":"กำลังเตรียมดาวน์โหลดทรัพยากร...",
+        "DOWNLOAD_COMPLETE":"ดาวน์โหลดเสร็จสิ้น",
+        "DOWNLOADING_RESOURCES":"กำลังดาวน์โหลดทรัพยากร",
+        "CLEANING_OLD_FILES":"กำลังล้างไฟล์เก่า",
+        "PREPARING_DOWNLOAD":"กำลังเตรียมดาวน์โหลด",
+        "PREPARING_DOWNLOAD_SIMPLE":"กำลังเตรียมดาวน์โหลด...",
+        "PREPARING_DOWNLOAD_LOGO":"กำลังเตรียมดาวน์โหลดโลโก้...",
+        "PREPARING_DOWNLOAD_EMOTICONS":"กำลังเตรียมดาวน์โหลดอีโมติคอน...",
+        "CHECKING_RESOURCE_INTEGRITY":"กำลังตรวจสอบความสมบูรณ์ของทรัพยากร...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT":"กำลังตรวจสอบความสมบูรณ์ของทรัพยากร",
+
+        "WELCOME_MESSAGE_CONNECTING":"ยินดีต้อนรับ\nกำลังเชื่อมต่อเครือข่าย\n",
+        "WELCOME_MESSAGE_INITIALIZING":"ยินดีต้อนรับ\nกำลังเริ่มต้น...",
+        "PLEASE_CONFIGURE_NETWORK":"โปรดตั้งค่าเครือข่าย"
     }
 }

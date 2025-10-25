@@ -46,7 +46,28 @@
         "BATTERY_NEED_CHARGE": "バッテリーが低下しています。充電してください",
 
         "VOLUME": "音量 ",
-        "MUTED": "ミュートされています",
-        "MAX_VOLUME": "最大音量"
+        "MUTED": "ミュート",
+        "MAX_VOLUME": "最大音量",
+
+        "SCAN_QR_CODE": "カメラでスキャン",
+        "DEVICE_REBOOT_SOON": "再起動中...",
+        "CHARGING_DOCK_DISCONNECTED": "充電ドック切断\n画面回転しました",
+        "CONNECT_CHARGING_DOCK": "充電ドックを接続してください",
+        "SCREEN_ROTATED": "画面を回転しました",
+        
+        "PREPARING_DOWNLOAD_RESOURCES": "リソースのダウンロードを準備中...",
+        "DOWNLOAD_COMPLETE": "ダウンロード完了",
+        "DOWNLOADING_RESOURCES": "リソースをダウンロード中",
+        "CLEANING_OLD_FILES": "古いファイルを削除中",
+        "PREPARING_DOWNLOAD": "ダウンロードを準備中",
+        "PREPARING_DOWNLOAD_SIMPLE": "ダウンロードを準備中...",
+        "PREPARING_DOWNLOAD_LOGO": "ロゴのダウンロードを準備中...",
+        "PREPARING_DOWNLOAD_EMOTICONS": "絵文字のダウンロードを準備中...",
+        "CHECKING_RESOURCE_INTEGRITY": "リソースの整合性を確認中...",
+        "CHECKING_RESOURCE_INTEGRITY_SHORT": "リソースの整合性を確認中",
+
+        "WELCOME_MESSAGE_CONNECTING": "AIコンパニオンへようこそ\nネットワーク接続中\n",
+        "WELCOME_MESSAGE_INITIALIZING": "AIコンパニオンへようこそ\n初期化中...",
+        "PLEASE_CONFIGURE_NETWORK": "ネットワークを設定してください"
     }
 }
