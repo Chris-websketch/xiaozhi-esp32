@@ -48,9 +48,13 @@ void AudioProcessor::Initialize(AudioCodec* codec, bool realtime_chat) {
     afe_config->afe_perferred_priority = 1;
     // 优化：启用AGC自动增益控制，改善不同音量下的识别效果
     afe_config->agc_init = true;
+    afe_config->agc_mode = AFE_AGC_MODE_WEBRTC;  // 使用WebRTC AGC算法
+    // 优化：增强AGC增益参数，提供更强的音量补偿
+    afe_config->agc_compression_gain_db = 15;  // 压缩增益从默认9dB提升到15dB，提供更强增益
+    afe_config->agc_target_level_dbfs = 3;     // 目标级别-3dBFS，保持音频在较高电平
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
-    ESP_LOGI(TAG, "Audio processor optimized: AGC enabled, VAD sensitivity increased");
+    ESP_LOGI(TAG, "Audio processor enhanced: AGC WebRTC mode, compression gain 15dB, input gain 42dB");
 
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     afe_data_ = afe_iface_->create_from_config(afe_config);

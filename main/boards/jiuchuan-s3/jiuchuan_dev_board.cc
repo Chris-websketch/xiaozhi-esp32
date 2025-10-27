@@ -4,6 +4,7 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "settings.h"
 #include "i2c_device.h"
 
 #include <esp_log.h>
@@ -116,10 +117,54 @@ public:
         
         // 添加底部内边距，防止文字贴底或超出圆形屏幕边缘
         // 圆形屏幕底部需要更多空间，避免文字被切割
-        lv_obj_set_style_pad_bottom(content_, 25, 0);
+        lv_obj_set_style_pad_bottom(content_, 35, 0);  // 增加到40px，让字幕容器向上移动
         
         // 将container_（包含状态栏和content_）移到最前面，确保UI在图片之上
         lv_obj_move_foreground(container_);
+        
+        // 创建字幕圆角矩形容器
+        CreateSubtitleContainer();
+    }
+    
+    // 创建字幕容器
+    void CreateSubtitleContainer() {
+        DisplayLockGuard lock(this);
+        
+        // 创建圆角矩形容器
+        subtitle_container_ = lv_obj_create(content_);
+        
+        // 计算两行文本的高度（行高 * 2 + 内边距）
+        lv_coord_t line_height = font_puhui_20_4.line_height;
+        lv_coord_t container_height = line_height * 2 + 24;  // 两行高度 + 上下内边距(12*2)
+        
+        // 设置容器样式 - 固定高度为两行
+        lv_obj_set_size(subtitle_container_, LV_HOR_RES * 0.9, container_height);
+        lv_obj_set_style_radius(subtitle_container_, 25, 0);  // 圆角半径25px
+        lv_obj_set_style_bg_color(subtitle_container_, lv_color_hex(0x000000), 0);  // 黑色背景
+        lv_obj_set_style_bg_opa(subtitle_container_, LV_OPA_50, 0);  // 50%不透明度
+        lv_obj_set_style_border_width(subtitle_container_, 2, 0);  // 白色边框宽度2px
+        lv_obj_set_style_border_color(subtitle_container_, lv_color_white(), 0);  // 白色边框
+        lv_obj_set_style_pad_all(subtitle_container_, 12, 0);  // 内边距12px
+        lv_obj_set_scrollbar_mode(subtitle_container_, LV_SCROLLBAR_MODE_OFF);  // 关闭滚动条
+        lv_obj_set_style_clip_corner(subtitle_container_, true, 0);  // 裁剪圆角边缘
+        
+        // 设置容器为flex布局，用于垂直居中
+        lv_obj_set_flex_flow(subtitle_container_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        
+        // 启用垂直滚动
+        lv_obj_set_scroll_dir(subtitle_container_, LV_DIR_VER);
+        
+        // 创建字幕文本标签
+        subtitle_label_ = lv_label_create(subtitle_container_);
+        lv_obj_set_width(subtitle_label_, LV_HOR_RES * 0.9 - 24);  // 减去内边距
+        lv_obj_set_style_text_font(subtitle_label_, &font_puhui_20_4, 0);
+        lv_obj_set_style_text_color(subtitle_label_, lv_color_white(), 0);  // 白色文字
+        lv_obj_set_style_text_align(subtitle_label_, LV_TEXT_ALIGN_CENTER, 0);  // 居中对齐
+        lv_label_set_text(subtitle_label_, "");
+        
+        // 初始隐藏容器
+        lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
     }
 
     // 下载进度UI成员变量
@@ -134,6 +179,10 @@ public:
     lv_obj_t* preload_message_label_ = nullptr;
     lv_obj_t* preload_progress_label_ = nullptr;
     lv_obj_t* preload_percentage_label_ = nullptr;
+    
+    // 字幕容器和标签
+    lv_obj_t* subtitle_container_ = nullptr;
+    lv_obj_t* subtitle_label_ = nullptr;
     
     // 用户交互禁用标志
     bool user_interaction_disabled_ = false;
@@ -333,6 +382,75 @@ public:
             SetIdle(true);
         }
     }
+    
+    // 重写SetChatMessage方法以在圆角矩形容器中显示字幕
+    void SetChatMessage(const char* role, const char* content) override {
+        DisplayLockGuard lock(this);
+        
+        if (subtitle_container_ == nullptr || subtitle_label_ == nullptr) {
+            return;
+        }
+        
+        // 如果内容为空，隐藏容器
+        if (content == nullptr || strlen(content) == 0) {
+            lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+        
+        // 设置文本为换行模式
+        lv_label_set_long_mode(subtitle_label_, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(subtitle_label_, content);
+        
+        // 计算文本实际需要的高度来判断行数
+        lv_coord_t label_width = LV_HOR_RES * 0.9 - 24;  // 标签宽度
+        lv_coord_t text_width = lv_txt_get_width(content, strlen(content), &font_puhui_20_4, 0);
+        lv_coord_t line_height = font_puhui_20_4.line_height;
+        
+        // 估算行数：文本宽度 / 标签宽度，向上取整
+        int estimated_lines = (text_width + label_width - 1) / label_width + 1;
+        
+        if (estimated_lines <= 2) {
+            // 1-2行文本：禁用滚动，文本居中或正常显示
+            lv_obj_remove_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
+            // flex布局会自动处理垂直居中
+        } else {
+            // 超过两行：启用纵向滚动
+            lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
+            
+            // 使用LVGL的滚动动画实现自动向上滚动
+            // 计算需要滚动的总高度
+            lv_coord_t content_height = lv_obj_get_height(subtitle_label_);
+            lv_coord_t container_content_height = lv_obj_get_content_height(subtitle_container_);
+            lv_coord_t scroll_height = content_height - container_content_height;
+            
+            if (scroll_height > 0) {
+                // 先滚动到底部（显示开始的内容）
+                lv_obj_scroll_to_y(subtitle_container_, scroll_height, LV_ANIM_OFF);
+                
+                // 延迟后开始向上滚动到顶部
+                lv_anim_t scroll_anim;
+                lv_anim_init(&scroll_anim);
+                lv_anim_set_var(&scroll_anim, subtitle_container_);
+                lv_anim_set_exec_cb(&scroll_anim, [](void* obj, int32_t value) {
+                    lv_obj_scroll_to_y((lv_obj_t*)obj, value, LV_ANIM_OFF);
+                });
+                
+                lv_anim_set_values(&scroll_anim, scroll_height, 0);  // 从底部滚动到顶部（向上滚动）
+                lv_anim_set_time(&scroll_anim, scroll_height * 50);  // 50ms每像素
+                lv_anim_set_delay(&scroll_anim, 1000);  // 延迟1秒开始
+                lv_anim_set_playback_time(&scroll_anim, scroll_height * 50);  // 返回时间
+                lv_anim_set_playback_delay(&scroll_anim, 1000);  // 返回前延迟1秒
+                lv_anim_set_repeat_count(&scroll_anim, LV_ANIM_REPEAT_INFINITE);  // 无限循环
+                lv_anim_start(&scroll_anim);
+            }
+        }
+        
+        // 显示容器
+        lv_obj_clear_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+        
+        // 确保容器在前景层
+        lv_obj_move_foreground(container_);
+    }
 };
 
 class JiuchuanDevBoard : public WifiBoard {
@@ -469,6 +587,19 @@ private:
         };
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &codec_i2c_bus_));
 
+    }
+
+    // 优化：添加音频质量优化方法
+    void OptimizeAudioSettings() {
+        auto codec = GetAudioCodec();
+        if (codec) {
+            // 根据环境自适应调整增益，使用整数存储，转换为浮点数
+            Settings settings("audio", false);
+            int gain_int = settings.GetInt("input_gain", 48);  // 默认48dB
+            float custom_gain = static_cast<float>(gain_int);
+            codec->SetInputGain(custom_gain);
+            ESP_LOGI(TAG, "音频设置已优化：输入增益 %.1fdB", custom_gain);
+        }
     }
 
     // 初始化图片资源管理器
@@ -1117,6 +1248,7 @@ public:
         cmd_button(CMD_BUTTON_GPIO) {
 
         InitializeI2c();
+        OptimizeAudioSettings();
         InitializePowerManager();
         InitializePowerSaveTimer();
         InitializeButtons();
