@@ -62,6 +62,39 @@ public:
     using SpiLcdDisplay::mute_label_;
     using SpiLcdDisplay::notification_label_;
     
+    // 字幕循环滚动定时器回调函数（静态成员函数）
+    static void SubtitleScrollTimerCallback(lv_timer_t* timer) {
+        auto* display = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(timer));
+        if (!display || !display->subtitle_container_ || !display->subtitle_label_) {
+            return;
+        }
+        
+        // 获取当前滚动位置
+        lv_coord_t current_scroll = lv_obj_get_scroll_y(display->subtitle_container_);
+        
+        // 计算下一个滚动位置（每次滚动4像素）
+        lv_coord_t next_scroll = current_scroll + 4;
+        
+        // 如果到达底部，延迟2秒后重新从顶部开始
+        if (next_scroll >= display->subtitle_max_scroll_) {
+            // 已到达底部，暂僜2秒
+            if (display->subtitle_scroll_pos_ == 0) {
+                display->subtitle_scroll_pos_ = 1;  // 标记已到达底部
+                lv_timer_set_period(timer, 2000);   // 延迟2秒
+                return;
+            } else {
+                // 延迟结束，重新从顶部开始
+                lv_obj_scroll_to_y(display->subtitle_container_, 0, LV_ANIM_OFF);
+                display->subtitle_scroll_pos_ = 0;
+                lv_timer_set_period(timer, 10);  // 恢复正常滚动速度（10ms，每次4像素 = 400px/s）
+                return;
+            }
+        }
+        
+        // 正常滚动
+        lv_obj_scroll_to_y(display->subtitle_container_, next_scroll, LV_ANIM_OFF);
+    }
+    
     CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle,
                      esp_lcd_panel_handle_t panel_handle,
                      int width,
@@ -126,6 +159,21 @@ public:
         CreateSubtitleContainer();
     }
     
+    // 析构函数 - 清理定时器
+    ~CustomLcdDisplay() {
+        // 清理字幕滚动定时器
+        if (subtitle_scroll_timer_) {
+            lv_timer_del(subtitle_scroll_timer_);
+            subtitle_scroll_timer_ = nullptr;
+        }
+        
+        // 清理字幕容器
+        if (subtitle_container_) {
+            lv_obj_del(subtitle_container_);
+            subtitle_container_ = nullptr;
+        }
+    }
+    
     // 创建字幕容器
     void CreateSubtitleContainer() {
         DisplayLockGuard lock(this);
@@ -184,6 +232,12 @@ public:
     // 字幕容器和标签
     lv_obj_t* subtitle_container_ = nullptr;
     lv_obj_t* subtitle_label_ = nullptr;
+    
+    // 字幕循环滚动相关
+    lv_timer_t* subtitle_scroll_timer_ = nullptr;  // 字幕滚动定时器
+    lv_coord_t subtitle_scroll_pos_ = 0;           // 当前滚动位置
+    lv_coord_t subtitle_max_scroll_ = 0;           // 最大滚动距离
+    bool subtitle_scrolling_ = false;              // 是否正在滚动
     
     // 用户交互禁用标志
     bool user_interaction_disabled_ = false;
@@ -384,7 +438,7 @@ public:
         }
     }
     
-    // 重写SetChatMessage方法以在圆角矩形容器中显示字幕
+    // 重写SetChatMessage方法以在圆角矩形容器中显示字幕（使用定时器循环滚动）
     void SetChatMessage(const char* role, const char* content) override {
         DisplayLockGuard lock(this);
         
@@ -392,9 +446,15 @@ public:
             return;
         }
         
-        // 如果内容为空，隐藏容器
+        // 如枟内容为空，隐藏容器并停止滚动
         if (content == nullptr || strlen(content) == 0) {
             lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_HIDDEN);
+            
+            if (subtitle_scroll_timer_ != nullptr) {
+                lv_timer_del(subtitle_scroll_timer_);
+                subtitle_scroll_timer_ = nullptr;
+                subtitle_scrolling_ = false;
+            }
             return;
         }
         
@@ -402,51 +462,45 @@ public:
         lv_label_set_long_mode(subtitle_label_, LV_LABEL_LONG_WRAP);
         lv_label_set_text(subtitle_label_, content);
         
-        // 计算文本实际需要的高度来判断行数
-        lv_coord_t label_width = LV_HOR_RES * 0.9 - 24;  // 标签宽度
-        lv_coord_t text_width = lv_txt_get_width(content, strlen(content), &font_puhui_20_4, 0);
+        // 停止之前的滚动定时器
+        if (subtitle_scroll_timer_ != nullptr) {
+            lv_timer_del(subtitle_scroll_timer_);
+            subtitle_scroll_timer_ = nullptr;
+            subtitle_scrolling_ = false;
+        }
         
-        // 估算行数：文本宽度 / 标签宽度，向上取整
-        int estimated_lines = (text_width + label_width - 1) / label_width + 1;
+        // 强制更新LVGL布局，确保标签高度计算正确
+        lv_obj_update_layout(subtitle_label_);
+        lv_obj_update_layout(subtitle_container_);
         
-        if (estimated_lines <= 2) {
-            // 1-2行文本：禁用滚动，文本居中或正常显示
-            lv_obj_remove_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
-            // 恢复居中对齐
-            lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            // flex布局会自动处理垂直居中
-        } else {
-            // 超过两行：启用纵向滚动
-            lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
+        // 获取标签的实际高度和容器的高度
+        lv_coord_t label_height = lv_obj_get_height(subtitle_label_);
+        lv_coord_t container_height = lv_obj_get_content_height(subtitle_container_);
+        
+        // 如果标签高度大于容器高度，启动循环滚动
+        if (label_height > container_height) {
+            // 计算最大滚动距离
+            subtitle_max_scroll_ = label_height - container_height;
+            subtitle_scroll_pos_ = 0;
+            subtitle_scrolling_ = true;
+            
+            // 先滚动到顶部
+            lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
+            
             // 设置为顶部对齐，确保第一句话从容器顶部开始显示
             lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             
-            // 使用LVGL的滚动动画实现自动向上滚动
-            // 计算需要滚动的总高度
-            lv_coord_t content_height = lv_obj_get_height(subtitle_label_);
-            lv_coord_t container_content_height = lv_obj_get_content_height(subtitle_container_);
-            lv_coord_t scroll_height = content_height - container_content_height;
+            // 创建滚动定时器，10ms触发一次，每次4像素 = 400px/s
+            subtitle_scroll_timer_ = lv_timer_create(SubtitleScrollTimerCallback, 10, this);
             
-            if (scroll_height > 0) {
-                // 先滚动到顶部（显示消息开头）
-                lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
-                
-                // 延迟后开始向下滚动到底部
-                lv_anim_t scroll_anim;
-                lv_anim_init(&scroll_anim);
-                lv_anim_set_var(&scroll_anim, subtitle_container_);
-                lv_anim_set_exec_cb(&scroll_anim, [](void* obj, int32_t value) {
-                    lv_obj_scroll_to_y((lv_obj_t*)obj, value, LV_ANIM_OFF);
-                });
-                
-                lv_anim_set_values(&scroll_anim, 0, scroll_height);  // 从顶部滚动到底部（向下滚动）
-                lv_anim_set_time(&scroll_anim, scroll_height * 50);  // 50ms每像素
-                lv_anim_set_delay(&scroll_anim, 1000);  // 延迟1秒开始
-                lv_anim_set_playback_time(&scroll_anim, scroll_height * 50);  // 返回时间
-                lv_anim_set_playback_delay(&scroll_anim, 1000);  // 返回前延迟1秒
-                lv_anim_set_repeat_count(&scroll_anim, LV_ANIM_REPEAT_INFINITE);  // 无限循环
-                lv_anim_start(&scroll_anim);
-            }
+            ESP_LOGI(TAG, "启动字幕循环滚动: 标签高度=%ld, 容器高度=%ld, 最大滚动=%ld", 
+                     (long)label_height, (long)container_height, (long)subtitle_max_scroll_);
+        } else {
+            // 内容未超出，直接显示在顶部，不需要滚动
+            lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
+            subtitle_scrolling_ = false;
+            // 恢复居中对齐
+            lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         }
         
         // 显示容器
