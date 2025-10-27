@@ -23,10 +23,12 @@ public:
 
     const std::string& GetFirmwareVersion() const { return firmware_version_; }
     const std::string& GetCurrentVersion() const { return current_version_; }
+    const std::string& GetFirmwareLanguage() const { return firmware_language_; }
     const std::string& GetActivationMessage() const { return activation_message_; }
     const std::string& GetActivationCode() const { return activation_code_; }
     const std::string& GetWebsocketUrl() const { return websocket_url_; }
     const std::string& GetWebsocketToken() const { return websocket_token_; }
+    bool IsLanguageUpdate() const { return is_language_update_; }
 
 private:
     std::string check_version_url_;
@@ -40,8 +42,10 @@ private:
     std::string current_version_;
     std::string firmware_version_;
     std::string firmware_url_;
+    std::string firmware_language_;
     std::string websocket_url_;
     std::string websocket_token_;
+    bool is_language_update_ = false;
     std::map<std::string, std::string> headers_;
 
     void Upgrade(const std::string& firmware_url);

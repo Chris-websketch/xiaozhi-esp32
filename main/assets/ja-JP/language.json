@@ -74,6 +74,7 @@
 
         "WELCOME_MESSAGE_CONNECTING": "AIコンパニオンへようこそ\nネットワーク接続中\n",
         "WELCOME_MESSAGE_INITIALIZING": "AIコンパニオンへようこそ\n初期化中...",
-        "PLEASE_CONFIGURE_NETWORK": "ネットワークを設定してください"
+        "PLEASE_CONFIGURE_NETWORK": "ネットワークを設定してください",
+        "LANGUAGE_SWITCHING": "デバイス言語切り替え中..."
     }
 }

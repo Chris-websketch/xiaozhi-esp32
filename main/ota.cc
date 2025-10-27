@@ -190,12 +190,38 @@ bool Ota::CheckVersion() {
 
     firmware_version_ = version->valuestring;
     firmware_url_ = url->valuestring;
+    
+    // 解析language字段（可选）
+    firmware_language_ = "";
+    is_language_update_ = false;
+    cJSON *language = cJSON_GetObjectItem(firmware, "language");
+    if (language != NULL && language->valuestring != NULL) {
+        firmware_language_ = language->valuestring;
+        ESP_LOGI(TAG, "Firmware language: %s, Current language: %s", 
+                 firmware_language_.c_str(), Lang::CODE);
+    }
+    
     cJSON_Delete(root);
 
     // Check if the version is newer
     has_new_version_ = IsNewVersionAvailable(current_version_, firmware_version_);
+    
+    // 如果版本号相同，检查语言是否需要更新
+    if (!has_new_version_ && !firmware_language_.empty()) {
+        if (firmware_language_ != Lang::CODE) {
+            has_new_version_ = true;
+            is_language_update_ = true;
+            ESP_LOGI(TAG, "Language update available: %s -> %s", 
+                     Lang::CODE, firmware_language_.c_str());
+        }
+    }
+    
     if (has_new_version_) {
-        ESP_LOGI(TAG, "New version available: %s", firmware_version_.c_str());
+        if (is_language_update_) {
+            ESP_LOGI(TAG, "Language update available: %s", firmware_language_.c_str());
+        } else {
+            ESP_LOGI(TAG, "New version available: %s", firmware_version_.c_str());
+        }
     } else {
         ESP_LOGI(TAG, "Current is the latest version");
     }

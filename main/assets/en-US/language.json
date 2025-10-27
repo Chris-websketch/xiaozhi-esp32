@@ -75,6 +75,7 @@
 
         "WELCOME_MESSAGE_CONNECTING": "Welcome to AI Companion\nConnecting to network\n",
         "WELCOME_MESSAGE_INITIALIZING": "Welcome to AI Companion\nInitializing...",
-        "PLEASE_CONFIGURE_NETWORK": "Please configure network"
+        "PLEASE_CONFIGURE_NETWORK": "Please configure network",
+        "LANGUAGE_SWITCHING": "Switching device language..."
     }
 }

@@ -203,7 +203,11 @@ void Application::CheckNewVersion() {
         retry_count = 0;
 
         if (ota_.HasNewVersion()) {
-            Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "happy", Lang::Sounds::P3_UPGRADE);
+            // 根据是语言更新还是版本更新，显示不同的提示
+            const char* upgrade_status = ota_.IsLanguageUpdate() ? 
+                Lang::Strings::LANGUAGE_SWITCHING : Lang::Strings::UPGRADING;
+            
+            Alert(Lang::Strings::OTA_UPGRADE, upgrade_status, "happy", Lang::Sounds::P3_UPGRADE);
             //等待提示音播放完毕后再开始升级
             vTaskDelay(pdMS_TO_TICKS(3000));
 
@@ -212,7 +216,13 @@ void Application::CheckNewVersion() {
                 SetDeviceState(kDeviceStateUpgrading);
                 
                 display->SetIcon(FONT_AWESOME_DOWNLOAD);
-                std::string message = std::string(Lang::Strings::NEW_VERSION) + ota_.GetFirmwareVersion();
+                // 根据更新类型显示不同的消息
+                std::string message;
+                if (ota_.IsLanguageUpdate()) {
+                    message = Lang::Strings::LANGUAGE_SWITCHING;
+                } else {
+                    message = std::string(Lang::Strings::NEW_VERSION) + ota_.GetFirmwareVersion();
+                }
                 display->SetChatMessage("system", message.c_str());
 
                 auto& board = Board::GetInstance();

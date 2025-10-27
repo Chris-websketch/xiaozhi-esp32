@@ -74,6 +74,7 @@
 
         "WELCOME_MESSAGE_CONNECTING":"ยินดีต้อนรับ\nกำลังเชื่อมต่อเครือข่าย\n",
         "WELCOME_MESSAGE_INITIALIZING":"ยินดีต้อนรับ\nกำลังเริ่มต้น...",
-        "PLEASE_CONFIGURE_NETWORK":"โปรดตั้งค่าเครือข่าย"
+        "PLEASE_CONFIGURE_NETWORK":"โปรดตั้งค่าเครือข่าย",
+        "LANGUAGE_SWITCHING":"กำลังเปลี่ยนภาษาอุปกรณ์..."
     }
 }

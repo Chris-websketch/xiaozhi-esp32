@@ -74,6 +74,7 @@
 
         "WELCOME_MESSAGE_CONNECTING": "AI 컴패니언에 오신 것을 환영합니다\n네트워크 연결 중\n",
         "WELCOME_MESSAGE_INITIALIZING": "AI 컴패니언에 오신 것을 환영합니다\n초기화 중...",
-        "PLEASE_CONFIGURE_NETWORK": "네트워크를 구성하세요"
+        "PLEASE_CONFIGURE_NETWORK": "네트워크를 구성하세요",
+        "LANGUAGE_SWITCHING": "장치 언어 변경 중..."
     }
 }

@@ -74,6 +74,7 @@
 
         "WELCOME_MESSAGE_CONNECTING":"欢迎使用独众AI伴侣\n设备连接网络中\n",
         "WELCOME_MESSAGE_INITIALIZING":"欢迎使用独众AI伴侣\n正在初始化...",
-        "PLEASE_CONFIGURE_NETWORK":"请配置网络连接"
+        "PLEASE_CONFIGURE_NETWORK":"请配置网络连接",
+        "LANGUAGE_SWITCHING":"设备语言更换中..."
     }
 }
