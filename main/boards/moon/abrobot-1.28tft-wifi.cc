@@ -24,6 +24,7 @@
 #include "lcd_display.h"        // LCD显示控制
 #include <iot_button.h>         // IoT按钮管理
 #include <cstring>              // C字符串处理
+#include <sys/stat.h>           // 文件系统统计和目录操作
 #include "esp_lcd_gc9a01.h"     // GC9A01 LCD驱动
 #include <font_awesome_symbols.h>  // Font Awesome图标符号
 #include "assets/lang_config.h"    // 语言配置
@@ -34,13 +35,17 @@
 #include <esp_sleep.h>            // ESP32睡眠模式
 #include <esp_pm.h>               // ESP32电源管理
 #include <esp_wifi.h>             // ESP32 WiFi功能
+#include <esp_littlefs.h>         // LittleFS文件系统
 #include "button.h"               // 按钮控制
 #include "settings.h"             // 设置管理
 #include "iot_image_display.h"  // 引入图片显示模式定义
 #include "image_manager.h"  // 引入图片资源管理器头文件
+#include "image_resource/network/downloader.h"  // 引入图片下载器
+#include "config/resource_config.h"  // 引入资源配置
 #include "ui/music_player_ui.h"  // 引入音乐播放器UI组件
 #include "ui/mqtt_music_handler.h"  // 引入MQTT音乐控制器
 #include "iot/things/music_player.h"  // 引入音乐播放器IoT设备
+#include <esp_random.h>  // ESP32随机数生成
 #define TAG "abrobot-1.28tft-wifi"  // 日志标签
 
 // 在abrobot-1.28tft-wifi.cc文件开头添加外部声明
@@ -58,8 +63,11 @@ LV_FONT_DECLARE(time40);     // 40像素大小时间字体
 LV_FONT_DECLARE(font_puhui_20_4);    // 普惠20像素字体
 LV_FONT_DECLARE(font_awesome_20_4);  // Font Awesome 20像素图标字体
 LV_FONT_DECLARE(font_awesome_30_4);  // Font Awesome 30像素图标字体
- 
 
+// 壁纸相关配置
+#define WALLPAPER_URL_CACHE_FILE "/model/wallpaper_urls.json"
+#define WALLPAPER_BASE_PATH "/model/wallpapers/"
+#define WALLPAPER_API_URL "http://110.42.35.132:8333/urls"
 
 // 暗色主题颜色定义
 #define DARK_BACKGROUND_COLOR       lv_color_hex(0)           // 深色背景色（黑色）
@@ -167,6 +175,13 @@ public:
     lv_obj_t * bg_switch_btn = nullptr; // 切换背景的按钮
     lv_obj_t * subtitle_container_ = nullptr;  // 字幕容器，固定在底部三分之一区域
     
+    // Tab3背景图像相关
+    lv_obj_t* tab3_bg_img_ = nullptr;           // Tab3背景图像对象
+    uint8_t* bg_images_data_[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};  // 动态加载的壁纸数据
+    lv_image_dsc_t bg_images_desc_[6];          // LVGL图像描述符
+    std::vector<std::string> wallpaper_urls_;   // 壁纸URL列表
+    int current_bg_index_ = -1;                 // 当前背景索引（-1=纯黑, 0-5=图片）
+    
     // 字幕循环滚动相关
     lv_timer_t* subtitle_scroll_timer_ = nullptr;  // 字幕滚动定时器
     lv_coord_t subtitle_scroll_pos_ = 0;           // 当前滚动位置
@@ -190,6 +205,9 @@ public:
                         .icon_font = &font_awesome_20_4,     // 设置图标字体
                         // 不再使用表情符号字体
                     }) {
+        // 提前挂载 model 分区，以便壁纸能在 SetupUI 时加载
+        MountModelPartition();
+        
         DisplayLockGuard lock(this);  // 获取显示锁，防止多线程访问冲突
         SetupUI();                    // 设置用户界面
         
@@ -242,6 +260,9 @@ public:
                 }
             }
         }, 100, this); // 100ms检查一次
+        
+        // 加载Tab3背景图像
+        LoadBackgroundImages();
     }
     
     // 字幕循环滚动定时器回调函数（静态成员函数）
@@ -306,6 +327,427 @@ public:
         if (sleep_timer_) {
             lv_timer_del(sleep_timer_);
             sleep_timer_ = nullptr;
+        }
+        
+        // 释放动态加载的壁纸内存
+        FreeWallpaperData();
+    }
+
+    /**
+     * @brief 初始化Tab3背景图像（从动态下载的文件加载）
+     */
+    void LoadBackgroundImages() {
+        ESP_LOGI(TAG, "=== 初始化Tab3背景图像 ===");
+        
+        // 尝试从本地文件加载壁纸
+        for (int i = 0; i < 6; i++) {
+            char filepath[128];
+            snprintf(filepath, sizeof(filepath), "%sclock_%d.bin", WALLPAPER_BASE_PATH, i + 1);
+            
+            if (LoadWallpaperFromFile(i, filepath)) {
+                ESP_LOGI(TAG, "✓ 壁纸 %d 加载成功: %dx%d, 大小=%lu字节", 
+                    i + 1,
+                    (int)bg_images_desc_[i].header.w, 
+                    (int)bg_images_desc_[i].header.h, 
+                    (unsigned long)bg_images_desc_[i].data_size);
+            } else {
+                ESP_LOGW(TAG, "✗ 壁纸 %d 加载失败，文件: %s", i + 1, filepath);
+            }
+        }
+        
+        ESP_LOGI(TAG, "=== Tab3背景图像初始化完成 ===");
+    }
+
+    /**
+     * @brief 释放壁纸数据内存
+     */
+    void FreeWallpaperData() {
+        for (int i = 0; i < 6; i++) {
+            if (bg_images_data_[i]) {
+                free(bg_images_data_[i]);
+                bg_images_data_[i] = nullptr;
+            }
+            memset(&bg_images_desc_[i], 0, sizeof(lv_image_dsc_t));
+        }
+    }
+
+    /**
+     * @brief 从文件加载壁纸到内存
+     * @param index 壁纸索引 (0-5)
+     * @param filepath 文件路径
+     * @return true 加载成功, false 加载失败
+     */
+    bool LoadWallpaperFromFile(int index, const char* filepath) {
+        if (index < 0 || index >= 6) {
+            return false;
+        }
+        
+        FILE* f = fopen(filepath, "rb");
+        if (!f) {
+            return false;
+        }
+        
+        // 获取文件大小
+        fseek(f, 0, SEEK_END);
+        size_t file_size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        
+        // 分配内存
+        uint8_t* data = (uint8_t*)malloc(file_size);
+        if (!data) {
+            fclose(f);
+            ESP_LOGE(TAG, "无法分配内存用于壁纸 %d，大小=%zu", index + 1, file_size);
+            return false;
+        }
+        
+        // 读取文件
+        size_t read_size = fread(data, 1, file_size, f);
+        fclose(f);
+        
+        if (read_size != file_size) {
+            free(data);
+            ESP_LOGE(TAG, "读取壁纸文件失败 %d", index + 1);
+            return false;
+        }
+        
+        // 释放旧数据
+        if (bg_images_data_[index]) {
+            free(bg_images_data_[index]);
+        }
+        
+        // 保存数据
+        bg_images_data_[index] = data;
+        
+        // 构建LVGL图像描述符（参照静态logo的配置）
+        bg_images_desc_[index].header.magic = LV_IMAGE_HEADER_MAGIC;  // 重要：添加magic标识
+        bg_images_desc_[index].header.cf = LV_COLOR_FORMAT_RGB565;
+        bg_images_desc_[index].header.flags = 0;
+        bg_images_desc_[index].header.w = 240;
+        bg_images_desc_[index].header.h = 240;
+        bg_images_desc_[index].header.stride = 240 * 2;  // 重要：每行字节数 = 宽度 * 2
+        bg_images_desc_[index].header.reserved_2 = 0;
+        bg_images_desc_[index].data_size = file_size;
+        bg_images_desc_[index].data = data;
+        bg_images_desc_[index].reserved = NULL;
+        
+        return true;
+    }
+
+    /**
+     * @brief 挂载 model 分区（用于存储壁纸）
+     * @return true 成功, false 失败
+     */
+    bool MountModelPartition() {
+        static bool model_mounted = false;
+        if (model_mounted) {
+            return true;  // 已经挂载
+        }
+        
+        esp_vfs_littlefs_conf_t conf = {
+            .base_path = "/model",
+            .partition_label = "model",
+            .format_if_mount_failed = true,  // 允许格式化（不需要语音识别模型）
+            .dont_mount = false,
+        };
+        
+        esp_err_t ret = esp_vfs_littlefs_register(&conf);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "model 分区已挂载到 /model");
+            model_mounted = true;
+            return true;
+        } else if (ret == ESP_ERR_INVALID_STATE) {
+            ESP_LOGI(TAG, "model 分区已经挂载");
+            model_mounted = true;
+            return true;
+        } else {
+            ESP_LOGE(TAG, "挂载 model 分区失败: %s", esp_err_to_name(ret));
+            return false;
+        }
+    }
+
+    /**
+     * @brief 检查并下载壁纸
+     * @return true 成功, false 失败
+     */
+    bool CheckAndDownloadWallpapers() {
+        ESP_LOGI(TAG, "=== 开始检查壁纸资源 ===");
+        
+        // 确保 model 分区已挂载
+        if (!MountModelPartition()) {
+            return false;
+        }
+        
+        if (!WifiStation::GetInstance().IsConnected()) {
+            ESP_LOGW(TAG, "WiFi未连接，跳过壁纸下载");
+            return false;
+        }
+        
+        // 读取缓存的URL
+        std::vector<std::string> cached_urls;
+        FILE* f = fopen(WALLPAPER_URL_CACHE_FILE, "r");
+        if (f) {
+            char buffer[1024];
+            size_t len = fread(buffer, 1, sizeof(buffer) - 1, f);
+            fclose(f);
+            
+            if (len > 0) {
+                buffer[len] = '\0';
+                cJSON* root = cJSON_Parse(buffer);
+                if (root) {
+                    cJSON* urls_array = cJSON_GetObjectItem(root, "urls");
+                    if (urls_array && cJSON_IsArray(urls_array)) {
+                        int array_size = cJSON_GetArraySize(urls_array);
+                        for (int i = 0; i < array_size; i++) {
+                            cJSON* url_item = cJSON_GetArrayItem(urls_array, i);
+                            if (cJSON_IsString(url_item)) {
+                                cached_urls.push_back(url_item->valuestring);
+                            }
+                        }
+                    }
+                    cJSON_Delete(root);
+                }
+            }
+        }
+        
+        ESP_LOGI(TAG, "本地缓存壁纸URL数量: %d", cached_urls.size());
+        
+        // 从API获取最新URL
+        auto http = Board::GetInstance().CreateHttp();
+        if (!http) {
+            ESP_LOGE(TAG, "无法创建HTTP客户端");
+            return false;
+        }
+        
+        http->SetHeader("Accept", "application/json");
+        
+        if (!http->Open("GET", WALLPAPER_API_URL)) {
+            ESP_LOGE(TAG, "无法连接到壁纸API: %s", WALLPAPER_API_URL);
+            delete http;
+            return false;
+        }
+        
+        std::string response = http->GetBody();
+        http->Close();
+        delete http;
+        
+        if (response.empty()) {
+            ESP_LOGE(TAG, "壁纸API返回空响应");
+            return false;
+        }
+        
+        ESP_LOGI(TAG, "壁纸API响应: %s", response.c_str());
+        
+        // 解析JSON
+        cJSON* root = cJSON_Parse(response.c_str());
+        if (!root) {
+            ESP_LOGE(TAG, "解析壁纸API响应失败");
+            return false;
+        }
+        
+        cJSON* urls_array = cJSON_GetObjectItem(root, "urls");
+        if (!urls_array || !cJSON_IsArray(urls_array)) {
+            ESP_LOGE(TAG, "壁纸API响应格式错误");
+            cJSON_Delete(root);
+            return false;
+        }
+        
+        std::vector<std::string> new_urls;
+        int array_size = cJSON_GetArraySize(urls_array);
+        for (int i = 0; i < array_size && i < 6; i++) {
+            cJSON* url_item = cJSON_GetArrayItem(urls_array, i);
+            if (cJSON_IsString(url_item)) {
+                new_urls.push_back(url_item->valuestring);
+            }
+        }
+        cJSON_Delete(root);
+        
+        if (new_urls.size() != 6) {
+            ESP_LOGE(TAG, "壁纸URL数量不正确: %d（期望6张）", new_urls.size());
+            return false;
+        }
+        
+        // 比较URL是否有变化
+        bool need_update = (cached_urls.size() != new_urls.size());
+        if (!need_update) {
+            for (size_t i = 0; i < new_urls.size(); i++) {
+                if (cached_urls[i] != new_urls[i]) {
+                    need_update = true;
+                    break;
+                }
+            }
+        }
+        
+        // 即使URL未变化，也要检查本地文件是否完整
+        if (!need_update) {
+            ESP_LOGI(TAG, "壁纸URL未变化，检查本地文件完整性...");
+            for (int i = 0; i < 6; i++) {
+                char filepath[128];
+                snprintf(filepath, sizeof(filepath), "%sclock_%d.bin", WALLPAPER_BASE_PATH, i + 1);
+                
+                FILE* f = fopen(filepath, "rb");
+                if (!f) {
+                    ESP_LOGW(TAG, "壁纸文件 %d 不存在，需要重新下载", i + 1);
+                    need_update = true;
+                    break;
+                }
+                
+                // 检查文件大小（240*240*2 = 115200字节）
+                fseek(f, 0, SEEK_END);
+                long size = ftell(f);
+                fclose(f);
+                
+                if (size != 115200) {
+                    ESP_LOGW(TAG, "壁纸文件 %d 大小异常: %ld字节（期望115200），需要重新下载", i + 1, size);
+                    need_update = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!need_update) {
+            ESP_LOGI(TAG, "壁纸URL未变化且本地文件完整，无需下载");
+            return false;  // 返回false，避免不必要的重新加载
+        }
+        
+        ESP_LOGI(TAG, "检测到壁纸需要更新（URL变化或文件不完整），开始下载...");
+        
+        // 创建目录
+        mkdir(WALLPAPER_BASE_PATH, 0755);
+        
+        // 先删除所有旧文件，确保下载干净
+        ShowDownloadProgress(true, 0, Lang::Strings::DELETING_WALLPAPERS);
+        for (int i = 0; i < 6; i++) {
+            char filepath[128];
+            snprintf(filepath, sizeof(filepath), "%sclock_%d.bin", WALLPAPER_BASE_PATH, i + 1);
+            remove(filepath);  // 删除旧文件（如果存在）
+        }
+        
+        // 删除完成后，显示下载消息
+        ShowDownloadProgress(true, 0, Lang::Strings::DOWNLOADING_WALLPAPERS);
+        
+        // 下载壁纸
+        const ImageResource::ResourceConfig* resource_config = &ImageResource::ConfigManager::GetInstance().get_config();
+        ImageResource::Downloader* downloader = new ImageResource::Downloader(resource_config);
+        
+        // 设置下载进度回调
+        downloader->SetProgressCallback([this](int current, int total, const char* message) {
+            int percent = (total > 0) ? (current * 100 / total) : 0;
+            // 下载过程中始终显示UI（show=true），message为nullptr时会保持原有消息
+            this->ShowDownloadProgress(true, percent, message);
+        });
+        
+        bool download_success = true;
+        for (int i = 0; i < 6; i++) {
+            char filepath[128];
+            snprintf(filepath, sizeof(filepath), "%sclock_%d.bin", WALLPAPER_BASE_PATH, i + 1);
+            
+            ESP_LOGI(TAG, "下载壁纸 %d: %s", i + 1, new_urls[i].c_str());
+            
+            // 下载壁纸（downloader内部会通过回调更新进度百分比，保持"正在下载时钟壁纸"消息不变）
+            esp_err_t err = downloader->DownloadFile(new_urls[i].c_str(), filepath, i + 1, 6);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "下载壁纸 %d 失败", i + 1);
+                download_success = false;
+                break;
+            }
+        }
+        
+        delete downloader;
+        
+        if (!download_success) {
+            ESP_LOGE(TAG, "壁纸下载失败，清理已下载的不完整文件");
+            
+            // 显示清理UI
+            ShowDownloadProgress(true, 0, "下载失败，清理文件...");
+            
+            // 清理所有已下载的文件，避免部分文件存在导致下次检查异常
+            for (int i = 0; i < 6; i++) {
+                char filepath[128];
+                snprintf(filepath, sizeof(filepath), "%sclock_%d.bin", WALLPAPER_BASE_PATH, i + 1);
+                remove(filepath);
+            }
+            
+            // 隐藏下载UI
+            vTaskDelay(pdMS_TO_TICKS(1000));  // 显示1秒失败信息
+            ShowDownloadProgress(false, 0, nullptr);
+            
+            return false;
+        }
+        
+        // 保存新URL到缓存
+        cJSON* cache_root = cJSON_CreateObject();
+        cJSON* cache_urls = cJSON_CreateArray();
+        for (const auto& url : new_urls) {
+            cJSON_AddItemToArray(cache_urls, cJSON_CreateString(url.c_str()));
+        }
+        cJSON_AddItemToObject(cache_root, "urls", cache_urls);
+        
+        char* json_str = cJSON_Print(cache_root);
+        f = fopen(WALLPAPER_URL_CACHE_FILE, "w");
+        if (f) {
+            fprintf(f, "%s", json_str);
+            fclose(f);
+        }
+        cJSON_Delete(cache_root);
+        free(json_str);
+        
+        ESP_LOGI(TAG, "壁纸下载完成，已保存缓存");
+        
+        // 显示完成信息，然后隐藏UI
+        ShowDownloadProgress(true, 100, "壁纸下载完成！");
+        vTaskDelay(pdMS_TO_TICKS(1000));  // 显示1秒完成信息
+        ShowDownloadProgress(false, 0, nullptr);
+        
+        wallpaper_urls_ = new_urls;
+        
+        return true;
+    }
+
+    /**
+     * @brief 随机选择Tab3背景
+     */
+    void RandomizeTab3Background() {
+        if (!tab3_bg_img_) {
+            ESP_LOGW(TAG, "Tab3背景图像对象未初始化");
+            return;
+        }
+        
+        // 随机选择0-7（0-5为图片，6-7为纯黑，增加纯黑概率）
+        uint32_t random_choice = esp_random() % 8;
+        
+        DisplayLockGuard lock(this);
+        
+        if (random_choice >= 6) {
+            // 选项6-7：纯黑背景
+            lv_obj_add_flag(tab3_bg_img_, LV_OBJ_FLAG_HIDDEN);
+            current_bg_index_ = -1;
+            ESP_LOGI(TAG, "Tab3背景: 纯黑色");
+        } else {
+            // 选项0-5：显示对应的图片背景
+            current_bg_index_ = (int)random_choice;
+            if (bg_images_data_[current_bg_index_] && bg_images_desc_[current_bg_index_].data) {
+                ESP_LOGI(TAG, "→ 设置图片源: 壁纸%d (指针=%p, 大小=%lu)", 
+                    current_bg_index_ + 1,
+                    (void*)bg_images_data_[current_bg_index_],
+                    (unsigned long)bg_images_desc_[current_bg_index_].data_size);
+                    
+                lv_img_set_src(tab3_bg_img_, &bg_images_desc_[current_bg_index_]);
+                lv_obj_clear_flag(tab3_bg_img_, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_move_background(tab3_bg_img_);  // 再次确保在最底层
+                lv_obj_invalidate(tab3_bg_img_);  // 强制重绘
+                
+                ESP_LOGI(TAG, "✓ Tab3背景: 壁纸 %d 已设置，图像对象=%p", 
+                    current_bg_index_ + 1, (void*)tab3_bg_img_);
+                ESP_LOGI(TAG, "  图像尺寸: %ldx%ld, 隐藏标志: %d", 
+                    (long)lv_obj_get_width(tab3_bg_img_), 
+                    (long)lv_obj_get_height(tab3_bg_img_),
+                    lv_obj_has_flag(tab3_bg_img_, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
+            } else {
+                // 图片不可用，回退到纯黑背景
+                lv_obj_add_flag(tab3_bg_img_, LV_OBJ_FLAG_HIDDEN);
+                current_bg_index_ = -1;
+                ESP_LOGW(TAG, "Tab3背景壁纸 %u 不可用，使用纯黑背景", (unsigned int)random_choice);
+            }
         }
     }
 
@@ -403,7 +845,7 @@ public:
             // 如果当前在时钟页面，切换回主页面
             if (tabview_ != nullptr) {
                 uint32_t active_tab = lv_tabview_get_tab_act(tabview_);
-                if (active_tab == 1) {  // 当前在时钟页面(tab2, 索引1)
+                if (active_tab == 1 || active_tab == 2) {  // 当前在时钟页面(tab2/tab3, 索引1/2)
                     ESP_LOGI(TAG, "用户交互唤醒，从时钟页面切换回主页面");
                     lv_tabview_set_act(tabview_, 0, LV_ANIM_OFF);  // 切换到tab1（索引0）
                 }
@@ -498,12 +940,16 @@ public:
             // 使用成员变量tabview_直接切换到tab2
             if (display->tabview_) {
                 ESP_LOGI(TAG, "空闲定时器触发，切换到时钟页面");
+                
+                // 随机选择Tab3背景（在切换前）
+                display->RandomizeTab3Background();
+                
                 // 在切换标签页前加锁，防止异常
                 lv_lock();
-                lv_tabview_set_act(display->tabview_, 1, LV_ANIM_OFF);  // 切换到tab2（索引1）
+                lv_tabview_set_act(display->tabview_, 2, LV_ANIM_OFF);  // 切换到tab3（索引2）有背景图像
                 
                 // 确保时钟页面始终在最顶层
-                lv_obj_move_foreground(display->tab2);
+                lv_obj_move_foreground(display->tab3);
                 
                 // 如果有画布，将其移到background以确保不会遮挡时钟
                 if (display->GetCanvas() != nullptr) {
@@ -855,10 +1301,20 @@ public:
         lv_obj_set_style_bg_color(tab3, lv_color_black(), 0);  // 设置背景颜色为黑色
         lv_obj_set_style_bg_opa(tab3, LV_OPA_COVER, 0);  // 设置背景不透明度为100%
 
+        // 创建背景图像对象（最底层，初始隐藏）
+        tab3_bg_img_ = lv_img_create(tab3);
+        lv_obj_set_size(tab3_bg_img_, 240, 240);  // 设置为全屏尺寸
+        lv_obj_align(tab3_bg_img_, LV_ALIGN_CENTER, 0, 0);  // 居中对齐
+        lv_obj_add_flag(tab3_bg_img_, LV_OBJ_FLAG_HIDDEN);  // 初始隐藏
+        lv_obj_set_style_bg_opa(tab3_bg_img_, LV_OPA_TRANSP, 0);  // 透明背景
+        lv_obj_move_background(tab3_bg_img_);  // 移动到最底层
+        ESP_LOGI(TAG, "Tab3背景图像对象已创建，指针=%p", (void*)tab3_bg_img_);
+
         // 创建秒钟标签，使用time40字体
         lv_obj_t *second_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(second_label, &time40, 0);  // 设置40像素时间字体
         lv_obj_set_style_text_color(second_label, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_opa(second_label, LV_OPA_TRANSP, 0);  // 透明背景，让背景图像显示
         lv_obj_align(second_label, LV_ALIGN_TOP_MID, 0, 10);  // 顶部居中对齐，偏移10像素
         lv_label_set_text(second_label, "00");  // 初始显示"00"秒
         
@@ -866,6 +1322,7 @@ public:
         lv_obj_t *date_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(date_label, fonts_.text_font, 0);  // 设置文本字体
         lv_obj_set_style_text_color(date_label, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_opa(date_label, LV_OPA_TRANSP, 0);  // 透明背景
         lv_label_set_text(date_label, "01-01");  // 初始显示"01-01"日期
         lv_obj_align(date_label, LV_ALIGN_TOP_MID, -60, 35);  // 顶部居中对齐，向左偏移60像素，向下偏移35像素
         
@@ -873,6 +1330,7 @@ public:
         lv_obj_t *weekday_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(weekday_label, fonts_.text_font, 0);  // 设置文本字体
         lv_obj_set_style_text_color(weekday_label, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_opa(weekday_label, LV_OPA_TRANSP, 0);  // 透明背景
         lv_label_set_text(weekday_label, "星期一");  // 初始显示"星期一"
         lv_obj_align(weekday_label, LV_ALIGN_TOP_MID, 60, 35);  // 顶部居中对齐，向右偏移60像素，向下偏移35像素
        
@@ -896,18 +1354,21 @@ public:
         lv_obj_t *hour_label = lv_label_create(time_container);
         lv_obj_set_style_text_font(hour_label, &time70, 0);  // 设置70像素时间字体
         lv_obj_set_style_text_color(hour_label, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_opa(hour_label, LV_OPA_TRANSP, 0);  // 透明背景
         lv_label_set_text(hour_label, "00 :");  // 初始显示"00 :"小时
         
         // 创建分钟标签，使用橙色显示
         lv_obj_t *minute_label = lv_label_create(time_container);
         lv_obj_set_style_text_font(minute_label, &time70, 0);  // 设置70像素时间字体
         lv_obj_set_style_text_color(minute_label, lv_color_hex(0xFFA500), 0);  // 设置文本颜色为橙色
+        lv_obj_set_style_bg_opa(minute_label, LV_OPA_TRANSP, 0);  // 透明背景
         lv_label_set_text(minute_label, " 00");  // 初始显示" 00"分钟
         
         // 创建农历标签
         lv_obj_t *lunar_label = lv_label_create(tab3);
         lv_obj_set_style_text_font(lunar_label, &lunar, 0);  // 设置农历字体
         lv_obj_set_style_text_color(lunar_label, lv_color_white(), 0);  // 设置文本颜色为白色
+        lv_obj_set_style_bg_opa(lunar_label, LV_OPA_TRANSP, 0);  // 透明背景
         lv_obj_set_width(lunar_label, LV_HOR_RES * 0.8);  // 设置宽度为屏幕宽度的80%
         lv_label_set_long_mode(lunar_label, LV_LABEL_LONG_WRAP);  // 设置自动换行模式
         lv_obj_set_style_text_align(lunar_label, LV_TEXT_ALIGN_CENTER, 0);  // 设置文本居中对齐
@@ -953,27 +1414,28 @@ public:
             CustomLcdDisplay* display_instance = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(t));
             if (!display_instance) return;
             
-            // 超级省电模式下降低tab3更新频率（1分钟更新一次）
-            static int tab3_update_counter = 0;
-            bool should_update_tab3 = false;
+            // 超级省电模式下降低tab2更新频率（1分钟更新一次）
+            // 注意：tab2是超级省电模式（索引1），tab3是时钟页面（索引2）需要正常更新
+            static int tab2_update_counter = 0;
+            bool should_update_tab2 = false;
             
-            // 检查当前是否在tab3（超级省电模式页面）
+            // 检查当前是否在tab2（超级省电模式页面）
             if (display_instance->tabview_) {
                 uint32_t active_tab = lv_tabview_get_tab_act(display_instance->tabview_);
-                if (active_tab == 2) {  // tab3的索引是2
-                    // 在tab3时，每30次更新一次（30 * 2秒 = 60秒 = 1分钟）
-                    tab3_update_counter++;
-                    if (tab3_update_counter >= 30) {
-                        should_update_tab3 = true;
-                        tab3_update_counter = 0;
+                if (active_tab == 1) {  // tab2（超级省电模式）的索引是1
+                    // 在tab2超级省电模式时，每30次更新一次（30 * 2秒 = 60秒 = 1分钟）
+                    tab2_update_counter++;
+                    if (tab2_update_counter >= 30) {
+                        should_update_tab2 = true;
+                        tab2_update_counter = 0;
                     }
-                    // 如果不到更新时间，只更新tab3就返回，不更新tab2
-                    if (!should_update_tab3) {
+                    // 如果不到更新时间，跳过本次更新
+                    if (!should_update_tab2) {
                         return;
                     }
                 } else {
-                    // 不在tab3时重置计数器
-                    tab3_update_counter = 0;
+                    // 不在tab2时重置计数器，tab3时钟页面正常更新
+                    tab2_update_counter = 0;
                 }
             }
             
@@ -1392,13 +1854,14 @@ public:
     
     // 显示或隐藏下载进度条
     void ShowDownloadProgress(bool show, int progress = 0, const char* message = nullptr) {
-        if (!show || !message) {
+        if (!show) {
             // 隐藏UI
             UpdateDownloadProgressUI(false, 0, nullptr);
             return;
         }
 
         // 显示新的圆形进度条UI
+        // message为nullptr时会保持原有消息不变，只更新进度
         UpdateDownloadProgressUI(true, progress, message);
     }
     
@@ -1630,6 +2093,12 @@ private:
         // 使用DisplayLockGuard管理锁
         DisplayLockGuard lock(this);
         
+        // 检查锁是否成功获取
+        if (!lock.IsLocked()) {
+            ESP_LOGW(TAG, "无法获取显示锁以更新下载进度UI，跳过本次更新");
+            return;
+        }
+        
         // 如果容器不存在但需要显示，创建UI
         if (download_progress_container_ == nullptr && show) {
             CreateDownloadProgressUI();
@@ -1669,26 +2138,9 @@ private:
                 lv_label_set_text(download_progress_label_, percent_text);
             }
             
-            // 精简消息显示
+            // 直接显示传入的消息（已经是正确的语言配置字符串）
             if (message && message_label_ != nullptr) {
-                // 简化消息内容，只显示关键信息
-                if (strstr(message, "下载") != nullptr) {
-                    if (progress == 100) {
-                        lv_label_set_text(message_label_, Lang::Strings::DOWNLOAD_COMPLETE);
-                    } else {
-                        lv_label_set_text(message_label_, Lang::Strings::DOWNLOADING_RESOURCES);
-                    }
-                } else if (strstr(message, "删除") != nullptr) {
-                    lv_label_set_text(message_label_, Lang::Strings::CLEANING_OLD_FILES);
-                } else if (strstr(message, "准备") != nullptr) {
-                    lv_label_set_text(message_label_, Lang::Strings::PREPARING_DOWNLOAD);
-                } else {
-                    // 保持原始消息，但限制长度
-                    char simplified_msg[64];
-                    strncpy(simplified_msg, message, sizeof(simplified_msg) - 1);
-                    simplified_msg[sizeof(simplified_msg) - 1] = '\0';
-                    lv_label_set_text(message_label_, simplified_msg);
-                }
+                lv_label_set_text(message_label_, message);
             }
             
             // 确保容器可见
@@ -2693,6 +3145,9 @@ private:
         if (display_) {
             CustomLcdDisplay* customDisplay = static_cast<CustomLcdDisplay*>(display_);
             if (customDisplay->tabview_) {
+                // 随机选择Tab3背景（在切换前）
+                customDisplay->RandomizeTab3Background();
+                
                 DisplayLockGuard lock(display_);
                 ESP_LOGI(TAG, "超级省电模式：切换到超级省电模式页面（tab3）");
                 lv_tabview_set_act(customDisplay->tabview_, 2, LV_ANIM_OFF);  // 切换到tab3（索引2）
@@ -2895,21 +3350,6 @@ private:
             has_updates = true;
         } else if (all_resources_result == ESP_ERR_NOT_FOUND) {
             ESP_LOGI(TAG, "所有图片资源已是最新版本，无需更新");
-            
-            // 资源无需更新，设备就绪，播放开机成功提示音
-            auto& app = Application::GetInstance();
-            DeviceState current_state = app.GetDeviceState();
-            // 支持从Starting或Idle状态触发（兼容不同初始化场景）
-            if (current_state == kDeviceStateStarting || current_state == kDeviceStateIdle) {
-                ESP_LOGI(TAG, "设备就绪，播放开机成功提示音（当前状态: %d）", current_state);
-                
-                // 显式调用SetDeviceState来触发空闲定时器的创建
-                // 这会自动调用display->SetIdle(true)并设置状态栏为"待命"
-                ESP_LOGI(TAG, "调用SetDeviceState(kDeviceStateIdle)以启用空闲定时器");
-                app.SetDeviceState(kDeviceStateIdle);
-                
-                app.PlaySound(Lang::Sounds::P3_SUCCESS);
-            }
         } else {
             ESP_LOGE(TAG, "图片资源检查/下载失败");
             has_errors = true;
@@ -2924,9 +3364,49 @@ private:
             ESP_LOGW(TAG, "未能获取logo图片，将使用默认显示");
         }
         
-        // 仅当有实际下载更新且无严重错误时才重启
-        if (has_updates && !has_errors) {
-            ESP_LOGI(TAG, "图片资源有更新，2秒后重启设备...");  // 从3秒减少到2秒
+        // 检查并下载时钟壁纸
+        ESP_LOGI(TAG, "开始检查时钟壁纸资源");
+        bool wallpaper_updated = false;
+        CustomLcdDisplay* custom_display = static_cast<CustomLcdDisplay*>(display_);
+        if (custom_display) {
+            if (custom_display->CheckAndDownloadWallpapers()) {
+                ESP_LOGI(TAG, "壁纸资源已更新，重新加载壁纸");
+                custom_display->LoadBackgroundImages();
+                wallpaper_updated = true;  // 标记壁纸已更新
+            } else {
+                ESP_LOGI(TAG, "壁纸资源无需更新");
+            }
+        }
+        
+        // 所有资源检查完成（图片+壁纸），播放开机成功提示音
+        // 只有在所有资源都没更新且没有错误时才播放
+        if (!has_updates && !wallpaper_updated && !has_errors) {
+            auto& app = Application::GetInstance();
+            DeviceState current_state = app.GetDeviceState();
+            // 支持从Starting或Idle状态触发（兼容不同初始化场景）
+            if (current_state == kDeviceStateStarting || current_state == kDeviceStateIdle) {
+                ESP_LOGI(TAG, "所有资源检查完成，设备就绪，播放开机成功提示音（当前状态: %d）", current_state);
+                
+                // 显式调用SetDeviceState来触发空闲定时器的创建
+                // 这会自动调用display->SetIdle(true)并设置状态栏为"待命"
+                ESP_LOGI(TAG, "调用SetDeviceState(kDeviceStateIdle)以启用空闲定时器");
+                app.SetDeviceState(kDeviceStateIdle);
+                
+                app.PlaySound(Lang::Sounds::P3_SUCCESS);
+            }
+        }
+        
+        // 仅当有实际下载更新（图片或壁纸）且无严重错误时才重启
+        if ((has_updates || wallpaper_updated) && !has_errors) {
+            // 详细说明哪些资源更新了
+            if (has_updates && wallpaper_updated) {
+                ESP_LOGI(TAG, "图片资源和壁纸都有更新，2秒后重启设备...");
+            } else if (has_updates) {
+                ESP_LOGI(TAG, "图片资源有更新，2秒后重启设备...");
+            } else {
+                ESP_LOGI(TAG, "壁纸资源有更新，2秒后重启设备...");
+            }
+            
             for (int i = 2; i > 0; i--) {
                 ESP_LOGI(TAG, "将在 %d 秒后重启...", i);
                 vTaskDelay(pdMS_TO_TICKS(1000));
@@ -2935,7 +3415,7 @@ private:
         } else if (has_errors) {
             ESP_LOGW(TAG, "图片资源下载存在错误，设备继续运行但可能缺少部分图片");
         } else {
-            ESP_LOGI(TAG, "所有图片资源已是最新版本，无需重启");
+            ESP_LOGI(TAG, "所有资源（图片+壁纸）都是最新版本，无需重启");
         }
         
         // 取消播放阶段的异步预加载，采用开机静默全量加载策略
@@ -2954,8 +3434,8 @@ private:
                 // 计算正确的百分比并传递
                 int percent = (total > 0) ? (current * 100 / total) : 0;
                 
-                // 简化：直接调用显示方法
-                customDisplay->ShowDownloadProgress(message != nullptr, percent, message);
+                // 下载过程中始终显示UI（show=true），message为nullptr时会保持原有消息
+                customDisplay->ShowDownloadProgress(true, percent, message);
             }
         });
         
@@ -3097,12 +3577,12 @@ private:
         
         // 验证加载结果
         int loaded_count = 0;
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 6; i++) {
             if (iot::g_emoticon_images[i] != nullptr) {
                 loaded_count++;
             }
         }
-        ESP_LOGI(TAG, "表情包预加载完成: %d/7", loaded_count);
+        ESP_LOGI(TAG, "表情包预加载完成: %d/6", loaded_count);
         
         // 立即尝试显示图片（根据模式）
         if (g_image_display_mode == iot::MODE_STATIC && g_static_image) {

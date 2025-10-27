@@ -48,16 +48,14 @@ esp_err_t Downloader::DownloadFile(const char* url, const char* filepath,
             continue;
         }
         
-        if (progress_callback_) {
+        // 注释掉初始消息设置，保持调用者设置的初始消息（如"正在下载动图"）
+        // 只在重试时更新消息
+        if (progress_callback_ && retry_count > 0) {
             char message[128];
             const char* filename = strrchr(filepath, '/');
             filename = filename ? filename + 1 : filepath;
-            if (retry_count > 0) {
-                snprintf(message, sizeof(message), "重试下载: %s (%d/%lu)",
-                        filename, retry_count + 1, config_->network.retry_count);
-            } else {
-                snprintf(message, sizeof(message), "正在下载: %s", filename);
-            }
+            snprintf(message, sizeof(message), "重试下载: %s (%d/%lu)",
+                    filename, retry_count + 1, config_->network.retry_count);
             progress_callback_(0, 100, message);
         }
         
@@ -212,18 +210,9 @@ esp_err_t Downloader::DownloadFile(const char* url, const char* filepath,
                 }
                 
                 if (total_percent != last_logged_percent && total_percent % 2 == 0) {
-                    char message[128];
-                    if (total_files > 1) {
-                        snprintf(message, sizeof(message), "下载图片资源 (%d/%d)", 
-                                file_index + 1, total_files);
-                    } else {
-                        const char* filename = strrchr(filepath, '/');
-                        filename = filename ? filename + 1 : filepath;
-                        snprintf(message, sizeof(message), "正在下载 %s", filename);
-                    }
-                    
                     if (progress_callback_) {
-                        progress_callback_(total_percent, 100, message);
+                        // 不论单文件还是批量，都不生成消息，保持调用者设置的初始消息（如"正在下载动图"/"正在下载静图"）
+                        progress_callback_(total_percent, 100, nullptr);
                     }
                     
                     if (file_percent % 25 == 0 || file_percent == 100) {
@@ -247,19 +236,12 @@ esp_err_t Downloader::DownloadFile(const char* url, const char* filepath,
         
         if (download_success) {
             if (progress_callback_) {
-                char message[128];
                 int total_percent = (total_files > 1) ? 
                     ((file_index + 1) * 100) / total_files : 100;
-                const char* filename = strrchr(filepath, '/');
-                filename = filename ? filename + 1 : filepath;
                 
-                if (total_files > 1) {
-                    snprintf(message, sizeof(message), "下载图片资源 (%d/%d)", 
-                            file_index + 1, total_files);
-                } else {
-                    snprintf(message, sizeof(message), "文件 %s 下载完成", filename);
-                }
-                progress_callback_(total_percent, 100, message);
+                // 不论单文件还是批量，都不生成消息，保持调用者设置的初始消息
+                // 让调用者自己决定何时显示完成消息
+                progress_callback_(total_percent, 100, nullptr);
             }
             
             ESP_LOGI(TAG, "文件下载完成");

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include "assets/lang_config.h"
 
 #define TAG "CleanupHelper"
 
@@ -31,12 +32,8 @@ bool CleanupHelper::DeleteFiles(const std::vector<std::string>& files, ProgressC
         
         int progress = static_cast<int>((i + 1) * 100 / files.size());
         if (callback) {
-            char message[128];
-            const char* filename = strrchr(filepath.c_str(), '/');
-            filename = filename ? filename + 1 : filepath.c_str();
-            snprintf(message, sizeof(message), "删除文件: %s (%zu/%zu)", 
-                    filename, i + 1, files.size());
-            callback(progress, 100, message);
+            // 不显示具体文件名，保持调用者设置的初始消息（如"正在删除旧的动图文件"）
+            callback(progress, 100, nullptr);
         }
         
         if (remove(filepath.c_str()) == 0) {
@@ -54,16 +51,7 @@ bool CleanupHelper::DeleteFiles(const std::vector<std::string>& files, ProgressC
     
     ESP_LOGI(TAG, "删除完成: 成功 %d 个, 失败 %d 个", deleted_count, failed_count);
     
-    if (callback) {
-        char final_message[128];
-        if (failed_count == 0) {
-            snprintf(final_message, sizeof(final_message), "成功删除 %d 个文件", deleted_count);
-        } else {
-            snprintf(final_message, sizeof(final_message), "删除完成: 成功 %d, 失败 %d", deleted_count, failed_count);
-        }
-        callback(100, 100, final_message);
-        vTaskDelay(pdMS_TO_TICKS(800));
-    }
+    // 不显示完成消息，保持调用者设置的初始消息
     
     return failed_count == 0;
 }
@@ -177,7 +165,7 @@ bool CleanupHelper::DeleteAnimationFiles(const char* base_path, int max_files, P
     }
     
     if (callback) {
-        callback(0, 100, "正在删除旧的动画图片文件...");
+        callback(0, 100, Lang::Strings::DELETING_ANIMATIONS);
     }
     
     // 扫描存在的文件
@@ -200,7 +188,7 @@ bool CleanupHelper::DeleteAnimationFiles(const char* base_path, int max_files, P
     if (existing_files.empty()) {
         ESP_LOGI(TAG, "未发现需要删除的动画图片文件");
         if (callback) {
-            callback(100, 100, "无需删除，准备下载新文件...");
+            callback(100, 100, Lang::Strings::PREPARING_DOWNLOAD);
             vTaskDelay(pdMS_TO_TICKS(300));
         }
         return true;
@@ -213,7 +201,7 @@ bool CleanupHelper::DeleteLogoFile(const char* logo_bin_path, const char* logo_h
     ESP_LOGI(TAG, "开始删除logo文件...");
     
     if (callback) {
-        callback(0, 100, "正在删除旧的logo文件...");
+        callback(0, 100, Lang::Strings::DELETING_STATIC_IMAGE);
     }
     
     struct stat file_stat;
@@ -223,7 +211,7 @@ bool CleanupHelper::DeleteLogoFile(const char* logo_bin_path, const char* logo_h
     if (!bin_exists && !h_exists) {
         ESP_LOGI(TAG, "未发现需要删除的logo文件");
         if (callback) {
-            callback(100, 100, "无需删除logo，准备下载新文件...");
+            callback(100, 100, Lang::Strings::PREPARING_DOWNLOAD);
             vTaskDelay(pdMS_TO_TICKS(300));
         }
         return true;
@@ -234,7 +222,7 @@ bool CleanupHelper::DeleteLogoFile(const char* logo_bin_path, const char* logo_h
     
     if (bin_exists) {
         if (callback) {
-            callback(25, 100, "正在删除logo.bin文件...");
+            callback(25, 100, nullptr);
         }
         
         if (remove(logo_bin_path) == 0) {
@@ -248,7 +236,7 @@ bool CleanupHelper::DeleteLogoFile(const char* logo_bin_path, const char* logo_h
     
     if (h_exists) {
         if (callback) {
-            callback(75, 100, "正在删除logo.h文件...");
+            callback(75, 100, nullptr);
         }
         
         if (remove(logo_h_path) == 0) {
@@ -260,21 +248,42 @@ bool CleanupHelper::DeleteLogoFile(const char* logo_bin_path, const char* logo_h
         }
     }
     
-    if (callback) {
-        char result_message[128];
-        if (success && deleted_count > 0) {
-            snprintf(result_message, sizeof(result_message), "成功删除 %d 个logo文件", deleted_count);
-        } else if (deleted_count > 0) {
-            snprintf(result_message, sizeof(result_message), "部分logo文件删除失败");
-        } else {
-            snprintf(result_message, sizeof(result_message), "logo文件删除失败");
-        }
-        callback(100, 100, result_message);
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
+    // 不显示完成消息，保持调用者设置的初始消息
     
     ESP_LOGI(TAG, "logo文件删除完成，成功删除: %d 个文件", deleted_count);
     return success;
+}
+
+bool CleanupHelper::DeleteEmoticonFiles(const char* base_path, const char** filenames, int file_count, ProgressCallback callback) {
+    ESP_LOGI(TAG, "开始删除表情包文件...");
+    
+    if (callback) {
+        callback(0, 100, Lang::Strings::DELETING_EMOTICONS);
+    }
+    
+    struct stat file_stat;
+    std::vector<std::string> existing_files;
+    
+    // 扫描存在的文件
+    for (int i = 0; i < file_count; i++) {
+        char filepath[128];
+        snprintf(filepath, sizeof(filepath), "%s%s", base_path, filenames[i]);
+        
+        if (stat(filepath, &file_stat) == 0) {
+            existing_files.push_back(filepath);
+        }
+    }
+    
+    if (existing_files.empty()) {
+        ESP_LOGI(TAG, "未发现需要删除的表情包文件");
+        if (callback) {
+            callback(100, 100, Lang::Strings::PREPARING_DOWNLOAD);
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+        return true;
+    }
+    
+    return DeleteFiles(existing_files, callback);
 }
 
 } // namespace ImageResource

@@ -27,8 +27,8 @@ extern "C" {
     // 当前表情状态，默认为平静
     volatile EmotionType g_current_emotion = EMOTION_CALM;
     // 表情包图片数组 - 动态从LittleFS加载
-    const unsigned char* g_emoticon_images[7] = {
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    const unsigned char* g_emoticon_images[6] = {
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
     };
 }
 
@@ -75,27 +75,26 @@ static uint8_t* LoadEmoticonFile(const char* path) {
 
 // 加载所有表情包
 void LoadAllEmoticons() {
-    const char* emoticon_paths[7] = {
+    const char* emoticon_paths[6] = {
         "/resources/emoticons/happy.bin",
         "/resources/emoticons/sad.bin",
         "/resources/emoticons/angry.bin",
-        "/resources/emoticons/fearful.bin",
-        "/resources/emoticons/disgusted.bin",
         "/resources/emoticons/surprised.bin",
-        "/resources/emoticons/calm.bin"
+        "/resources/emoticons/calm.bin",
+        "/resources/emoticons/shy.bin"
     };
     
     ESP_LOGI(TAG, "开始加载表情包资源...");
     int success_count = 0;
     
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 6; i++) {
         g_emoticon_images[i] = LoadEmoticonFile(emoticon_paths[i]);
         if (g_emoticon_images[i]) {
             success_count++;
         }
     }
     
-    ESP_LOGI(TAG, "表情包加载完成: %d/7 成功", success_count);
+    ESP_LOGI(TAG, "表情包加载完成: %d/6 成功", success_count);
 }
 
 // 图片显示控制类
@@ -174,15 +173,15 @@ public:
                 
                 // 验证表情包已加载（启动时已预加载）
                 int loaded_count = 0;
-                for (int i = 0; i < 7; i++) {
+                for (int i = 0; i < 6; i++) {
                     if (g_emoticon_images[i] != nullptr) {
                         loaded_count++;
                     }
                 }
                 
-                ESP_LOGI(TAG, "表情包加载状态: %d/7", loaded_count);
+                ESP_LOGI(TAG, "表情包加载状态: %d/6", loaded_count);
                 
-                if (loaded_count < 7) {
+                if (loaded_count < 6) {
                     ESP_LOGW(TAG, "⚠️ 部分表情包未加载，可能影响显示效果");
                 }
                 

@@ -61,6 +61,16 @@ public:
      * @return true成功，false失败
      */
     bool DeleteLogoFile(const char* logo_bin_path, const char* logo_h_path, ProgressCallback callback = nullptr);
+
+    /**
+     * 删除表情包文件
+     * @param base_path 表情包基础路径
+     * @param filenames 文件名列表
+     * @param file_count 文件数量
+     * @param callback 进度回调
+     * @return true成功，false失败
+     */
+    bool DeleteEmoticonFiles(const char* base_path, const char** filenames, int file_count, ProgressCallback callback = nullptr);
 };
 
 } // namespace ImageResource

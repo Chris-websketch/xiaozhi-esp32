@@ -22,9 +22,7 @@ void AudioProcessor::Initialize(AudioCodec* codec, bool realtime_chat) {
         input_format.push_back('R');
     }
 
-    srmodel_list_t *models = esp_srmodel_init("model");
-    char* ns_model_name = esp_srmodel_filter(models, ESP_NSNET_PREFIX, NULL);
-
+    // 不使用语音识别模型，使用 WebRTC 内置降噪
     afe_config_t* afe_config = afe_config_init(input_format.c_str(), NULL, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
     if (realtime_chat) {
         afe_config->aec_init = true;
@@ -33,8 +31,8 @@ void AudioProcessor::Initialize(AudioCodec* codec, bool realtime_chat) {
         afe_config->aec_init = false;
     }
     afe_config->ns_init = true;
-    afe_config->ns_model_name = ns_model_name;
-    afe_config->afe_ns_mode = AFE_NS_MODE_NET;
+    afe_config->ns_model_name = NULL;  // 不使用外部模型
+    afe_config->afe_ns_mode = AFE_NS_MODE_WEBRTC;  // 使用 WebRTC 内置降噪
     if (realtime_chat) {
         afe_config->vad_init = false;
     } else {

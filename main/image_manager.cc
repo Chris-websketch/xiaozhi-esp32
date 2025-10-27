@@ -29,17 +29,16 @@
 #define EMOTICON_BASE_PATH "/resources/emoticons/"
 #define PACKED_FILE_PATH "/resources/images/packed.rgb"
 #define MAX_IMAGE_FILES 9
-#define MAX_EMOTICON_FILES 7
+#define MAX_EMOTICON_FILES 6
 
 // 表情包文件名映射
-static const char* EMOTICON_FILENAMES[7] = {
+static const char* EMOTICON_FILENAMES[6] = {
     "happy.bin",
     "sad.bin",
     "angry.bin",
-    "fearful.bin",
-    "disgusted.bin",
     "surprised.bin",
-    "calm.bin"
+    "calm.bin",
+    "shy.bin"
 };
 
 using namespace ImageResource;
@@ -341,13 +340,12 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
             // 服务器未返回表情包URL，使用硬编码的默认URL（测试用）
             ESP_LOGW(TAG, "服务器未返回表情包URL，使用默认地址");
             server_emoticon_urls_ = {
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rbkgwm.bin",   // happy
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rbmqa9.bin",   // sad
-                "https://imgbad.xmduzhong.com/i/2025/10/20/ra4enj.bin",   // angry
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rb99ap.bin",   // fearful
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rb6ci2.bin",   // disgusted
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rbpi1v.bin",   // surprised
-                "https://imgbad.xmduzhong.com/i/2025/10/20/rb3vn6.bin"    // calm
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h50yza_0001.bin",   // happy
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h5ghmi_0001.bin",   // sad
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h4cm5f_0001.bin",   // angry
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h5qw39_0001.bin",   // surprised
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h4uokk_0001.bin",   // calm
+                "https://imgbad.xmduzhong.com/i/2025/10/27/h5lop1_0001.bin"    // shy
             };
             // 检查是否需要下载
             if (cached_emoticon_urls_ != server_emoticon_urls_) {
@@ -421,15 +419,15 @@ esp_err_t ImageResourceManager::DownloadImages() {
     
     ESP_LOGI(TAG, "开始下载动画图片...");
     
-    // 显示下载准备UI
-    if (progress_callback_) {
-        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_SIMPLE);
-    }
-    
     download_mode_->Enter();
     
-    // 删除旧文件
+    // 删除旧文件（会显示"正在删除旧的动图文件"）
     cleanup_helper_->DeleteAnimationFiles(IMAGE_BASE_PATH, MAX_IMAGE_FILES, progress_callback_);
+    
+    // 删除完成后，显示下载消息
+    if (progress_callback_) {
+        progress_callback_(0, 100, Lang::Strings::DOWNLOADING_ANIMATIONS);
+    }
     
     // 准备文件路径
     std::vector<std::string> filepaths;
@@ -451,6 +449,12 @@ esp_err_t ImageResourceManager::DownloadImages() {
         
         LoadImageData();
         ESP_LOGI(TAG, "动画图片下载完成，等待其他资源...");
+        
+        // 显示完成消息
+        if (progress_callback_) {
+            progress_callback_(100, 100, Lang::Strings::DOWNLOAD_COMPLETE);
+            vTaskDelay(pdMS_TO_TICKS(1000)); // 显示1秒
+        }
     }
     
     download_mode_->Exit();
@@ -465,14 +469,15 @@ esp_err_t ImageResourceManager::DownloadLogo() {
     
     ESP_LOGI(TAG, "开始下载logo...");
     
-    // 显示下载准备UI
-    if (progress_callback_) {
-        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_LOGO);
-    }
-    
     download_mode_->Enter();
     
+    // 删除旧文件（会显示"正在删除旧的静图文件"）
     cleanup_helper_->DeleteLogoFile(LOGO_FILE_PATH, LOGO_FILE_PATH_H, progress_callback_);
+    
+    // 删除完成后，显示下载消息
+    if (progress_callback_) {
+        progress_callback_(0, 100, Lang::Strings::DOWNLOADING_STATIC_IMAGE);
+    }
     
     downloader_->SetProgressCallback(progress_callback_);
     esp_err_t result = downloader_->DownloadFile(server_static_url_.c_str(), LOGO_FILE_PATH);
@@ -483,8 +488,14 @@ esp_err_t ImageResourceManager::DownloadLogo() {
         has_valid_logo_ = true;
         logo_download_completed_ = true;
         
-        LoadImageData();
-        ESP_LOGI(TAG, "Logo下载完成，等待其他资源...");
+        LoadLogoFile();
+        ESP_LOGI(TAG, "logo下载完成");
+        
+        // 显示完成消息
+        if (progress_callback_) {
+            progress_callback_(100, 100, Lang::Strings::DOWNLOAD_COMPLETE);
+            vTaskDelay(pdMS_TO_TICKS(1000)); // 显示1秒
+        }
     }
     
     download_mode_->Exit();
@@ -501,10 +512,18 @@ esp_err_t ImageResourceManager::DownloadEmoticons() {
     ESP_LOGI(TAG, "开始下载表情包...");
     
     if (progress_callback_) {
-        progress_callback_(0, 100, Lang::Strings::PREPARING_DOWNLOAD_EMOTICONS);
+        progress_callback_(0, 100, Lang::Strings::DOWNLOADING_EMOTICONS);
     }
     
     download_mode_->Enter();
+    
+    // 删除旧表情包文件（会显示"正在删除旧的表情包文件"）
+    cleanup_helper_->DeleteEmoticonFiles(EMOTICON_BASE_PATH, EMOTICON_FILENAMES, MAX_EMOTICON_FILES, progress_callback_);
+    
+    // 删除完成后，显示下载消息
+    if (progress_callback_) {
+        progress_callback_(0, 100, Lang::Strings::DOWNLOADING_EMOTICONS);
+    }
     
     // 确保目录存在
     mkdir("/resources/emoticons", 0755);
@@ -529,6 +548,12 @@ esp_err_t ImageResourceManager::DownloadEmoticons() {
         emoticons_download_completed_ = true;
         
         ESP_LOGI(TAG, "表情包下载完成");
+        
+        // 显示完成消息
+        if (progress_callback_) {
+            progress_callback_(100, 100, Lang::Strings::DOWNLOAD_COMPLETE);
+            vTaskDelay(pdMS_TO_TICKS(1000)); // 显示1秒
+        }
     }
     
     download_mode_->Exit();

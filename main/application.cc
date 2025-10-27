@@ -51,14 +51,12 @@ static iot::EmotionType ParseEmotionString(const char* emotion_str) {
         return iot::EMOTION_SAD;
     } else if (emotion_lower == "angry" || emotion_lower == "anger" || emotion_lower == "rage") {
         return iot::EMOTION_ANGRY;
-    } else if (emotion_lower == "fearful" || emotion_lower == "fear" || emotion_lower == "scared") {
-        return iot::EMOTION_FEARFUL;
-    } else if (emotion_lower == "disgusted" || emotion_lower == "disgust") {
-        return iot::EMOTION_DISGUSTED;
     } else if (emotion_lower == "surprised" || emotion_lower == "surprise" || emotion_lower == "amazed") {
         return iot::EMOTION_SURPRISED;
     } else if (emotion_lower == "calm" || emotion_lower == "neutral" || emotion_lower == "normal") {
         return iot::EMOTION_CALM;
+    } else if (emotion_lower == "shy" || emotion_lower == "bashful" || emotion_lower == "embarrassed") {
+        return iot::EMOTION_SHY;
     }
     
     // 未识别，返回平静
@@ -100,21 +98,14 @@ static iot::EmotionType ParseEmojiFromText(const char* text) {
                 case 0xA0: return iot::EMOTION_ANGRY;      // 😠 U+1F620 生气
                 case 0xA1: return iot::EMOTION_ANGRY;      // 😡 U+1F621 愤怒
                 case 0xA4: return iot::EMOTION_ANGRY;      // 😤 U+1F624 得意
-                case 0xA8: return iot::EMOTION_FEARFUL;    // 😨 U+1F628 恐惧
-                case 0xB1: return iot::EMOTION_FEARFUL;    // 😱 U+1F631 尖叫
-                case 0xB0: return iot::EMOTION_FEARFUL;    // 😰 U+1F630 焦虑
                 case 0xB2: return iot::EMOTION_SURPRISED;  // 😲 U+1F632 惊讶
                 case 0xAE: return iot::EMOTION_SURPRISED;  // 😮 U+1F62E 张嘴
-                case 0xB3: return iot::EMOTION_SURPRISED;  // 😳 U+1F633 脸红
+                case 0xB3: return iot::EMOTION_SHY;        // 😳 U+1F633 脸红/害羞
                 case 0x90: return iot::EMOTION_CALM;       // 😐 U+1F610 平静
                 case 0x91: return iot::EMOTION_CALM;       // 😑 U+1F611 无语
                 case 0x92: return iot::EMOTION_CALM;       // 😒 U+1F612 不悦
                 default: break;
             }
-        } else if (bytes[i+2] == 0xA4 && bytes[i+3] == 0xA2) {
-            return iot::EMOTION_DISGUSTED;  // 🤢 U+1F922 恶心
-        } else if (bytes[i+2] == 0xA4 && bytes[i+3] == 0xAE) {
-            return iot::EMOTION_DISGUSTED;  // 🤮 U+1F92E 呕吐
         }
     }
     

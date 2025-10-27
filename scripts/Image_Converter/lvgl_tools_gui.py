@@ -19,7 +19,7 @@ HELP_TEXT = """LVGL图片转换工具使用说明：
 
 2. 移除文件：勾选文件列表中的复选框，点击"移除选中"可删除选定文件
 
-3. 设置分辨率：选择需要的分辨率，如32x32, 64x64, 128x128, 256x256或360x360
+3. 设置分辨率：选择需要的分辨率，如32x32, 64x64, 128x128, 240x240, 256x256或360x360
    建议根据自己的设备的屏幕分辨率来选择。过大和过小都会影响显示效果。
 
 4. 颜色格式：选择"自动识别"会根据图片是否透明自动选择，或手动指定
@@ -229,7 +229,7 @@ class ImageConverterApp(QMainWindow):
         # 分辨率设置
         settings_grid.addWidget(QLabel("分辨率:"), 0, 0)
         self.res_combo = QComboBox()
-        self.res_combo.addItems(["128x128", "64x64", "32x32", "256x256", "360x360"])
+        self.res_combo.addItems(["32x32", "64x64", "128x128", "240x240", "256x256", "360x360"])
         self.res_combo.setCurrentText(self.resolution)
         settings_grid.addWidget(self.res_combo, 0, 1)
         
