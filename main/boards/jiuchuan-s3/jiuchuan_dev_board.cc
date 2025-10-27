@@ -161,6 +161,7 @@ public:
         lv_obj_set_style_text_font(subtitle_label_, &font_puhui_20_4, 0);
         lv_obj_set_style_text_color(subtitle_label_, lv_color_white(), 0);  // 白色文字
         lv_obj_set_style_text_align(subtitle_label_, LV_TEXT_ALIGN_CENTER, 0);  // 居中对齐
+        lv_obj_set_style_text_line_space(subtitle_label_, -5, 0);  // 设置行间距为2像素
         lv_label_set_text(subtitle_label_, "");
         
         // 初始隐藏容器
@@ -404,7 +405,6 @@ public:
         // 计算文本实际需要的高度来判断行数
         lv_coord_t label_width = LV_HOR_RES * 0.9 - 24;  // 标签宽度
         lv_coord_t text_width = lv_txt_get_width(content, strlen(content), &font_puhui_20_4, 0);
-        lv_coord_t line_height = font_puhui_20_4.line_height;
         
         // 估算行数：文本宽度 / 标签宽度，向上取整
         int estimated_lines = (text_width + label_width - 1) / label_width + 1;
@@ -412,10 +412,14 @@ public:
         if (estimated_lines <= 2) {
             // 1-2行文本：禁用滚动，文本居中或正常显示
             lv_obj_remove_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
+            // 恢复居中对齐
+            lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             // flex布局会自动处理垂直居中
         } else {
             // 超过两行：启用纵向滚动
             lv_obj_add_flag(subtitle_container_, LV_OBJ_FLAG_SCROLLABLE);
+            // 设置为顶部对齐，确保第一句话从容器顶部开始显示
+            lv_obj_set_flex_align(subtitle_container_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             
             // 使用LVGL的滚动动画实现自动向上滚动
             // 计算需要滚动的总高度
@@ -424,10 +428,10 @@ public:
             lv_coord_t scroll_height = content_height - container_content_height;
             
             if (scroll_height > 0) {
-                // 先滚动到底部（显示开始的内容）
-                lv_obj_scroll_to_y(subtitle_container_, scroll_height, LV_ANIM_OFF);
+                // 先滚动到顶部（显示消息开头）
+                lv_obj_scroll_to_y(subtitle_container_, 0, LV_ANIM_OFF);
                 
-                // 延迟后开始向上滚动到顶部
+                // 延迟后开始向下滚动到底部
                 lv_anim_t scroll_anim;
                 lv_anim_init(&scroll_anim);
                 lv_anim_set_var(&scroll_anim, subtitle_container_);
@@ -435,7 +439,7 @@ public:
                     lv_obj_scroll_to_y((lv_obj_t*)obj, value, LV_ANIM_OFF);
                 });
                 
-                lv_anim_set_values(&scroll_anim, scroll_height, 0);  // 从底部滚动到顶部（向上滚动）
+                lv_anim_set_values(&scroll_anim, 0, scroll_height);  // 从顶部滚动到底部（向下滚动）
                 lv_anim_set_time(&scroll_anim, scroll_height * 50);  // 50ms每像素
                 lv_anim_set_delay(&scroll_anim, 1000);  // 延迟1秒开始
                 lv_anim_set_playback_time(&scroll_anim, scroll_height * 50);  // 返回时间
