@@ -6,6 +6,7 @@
 #include <system_info.h>
 #include <esp_app_format.h>
 #include <esp_ota_ops.h>
+#include <string.h>
 
 #define TAG "VersionChecker"
 
@@ -88,20 +89,51 @@ esp_err_t VersionChecker::CheckServer(const char* api_url, ResourceVersions& ver
         ESP_LOGW(TAG, "未找到静态图片URL");
     }
     
-    // 解析表情包URL数组
-    cJSON* emoticon_array = cJSON_GetObjectItem(root, "emoticon_urls");
-    if (emoticon_array != NULL && cJSON_IsArray(emoticon_array)) {
+    // 解析表情包URL - 支持新的emoji对象格式
+    cJSON* emoji_obj = cJSON_GetObjectItem(root, "emoji");
+    if (emoji_obj != NULL && cJSON_IsObject(emoji_obj)) {
         versions.emoticon_urls.clear();
-        int array_size = cJSON_GetArraySize(emoticon_array);
-        for (int i = 0; i < array_size; i++) {
-            cJSON* url_item = cJSON_GetArrayItem(emoticon_array, i);
-            if (cJSON_IsString(url_item)) {
-                versions.emoticon_urls.push_back(url_item->valuestring);
+        
+        // 遍历emoji对象，根据键名提取URL
+        // 键名对应关系：happy, sad, angry, surprised, calm, shy
+        cJSON* item = NULL;
+        cJSON_ArrayForEach(item, emoji_obj) {
+            if (item->string != NULL && cJSON_IsString(item)) {
+                const char* emotion_key = item->string;
+                const char* url = item->valuestring;
+                
+                // 根据键名确定在数组中的位置
+                int index = -1;
+                if (strcmp(emotion_key, "happy") == 0) index = 0;
+                else if (strcmp(emotion_key, "sad") == 0) index = 1;
+                else if (strcmp(emotion_key, "angry") == 0) index = 2;
+                else if (strcmp(emotion_key, "surprised") == 0) index = 3;
+                else if (strcmp(emotion_key, "calm") == 0) index = 4;
+                else if (strcmp(emotion_key, "shy") == 0) index = 5;
+                
+                if (index >= 0) {
+                    // 确保数组有足够空间
+                    while (versions.emoticon_urls.size() <= index) {
+                        versions.emoticon_urls.push_back("");
+                    }
+                    versions.emoticon_urls[index] = url;
+                    ESP_LOGI(TAG, "解析表情包 %s: %s", emotion_key, url);
+                } else {
+                    ESP_LOGW(TAG, "未知的表情包键名: %s", emotion_key);
+                }
             }
         }
-        ESP_LOGI(TAG, "解析到 %d 个表情包URL", array_size);
+        
+        // 验证所有表情包是否都已解析
+        int valid_count = 0;
+        for (size_t i = 0; i < versions.emoticon_urls.size(); i++) {
+            if (!versions.emoticon_urls[i].empty()) {
+                valid_count++;
+            }
+        }
+        ESP_LOGI(TAG, "从emoji对象解析到 %d/6 个有效表情包URL", valid_count);
     } else {
-        ESP_LOGW(TAG, "未找到表情包URL数组");
+        ESP_LOGW(TAG, "未找到emoji对象");
     }
     
     cJSON_Delete(root);

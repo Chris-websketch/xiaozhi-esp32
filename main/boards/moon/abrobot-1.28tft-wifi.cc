@@ -1275,6 +1275,7 @@ public:
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(chat_message_label_, current_theme.text, 0);
         lv_obj_set_style_bg_opa(chat_message_label_, LV_OPA_0, 0);  // 完全透明背景
+        lv_obj_set_style_text_line_space(chat_message_label_, -15, 0);  // 缩小行间距，使字幕更紧凑
         lv_obj_align(chat_message_label_, LV_ALIGN_TOP_MID, 0, 0);  // 在容器内顶部对齐
         
         // 默认隐藏字幕容器，直到有消息需要显示

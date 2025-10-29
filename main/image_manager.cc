@@ -337,21 +337,7 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
             }
             server_emoticon_urls_ = server_versions.emoticon_urls;
         } else {
-            // 服务器未返回表情包URL，使用硬编码的默认URL（测试用）
-            ESP_LOGW(TAG, "服务器未返回表情包URL，使用默认地址");
-            server_emoticon_urls_ = {
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h50yza_0001.bin",   // happy
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h5ghmi_0001.bin",   // sad
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h4cm5f_0001.bin",   // angry
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h5qw39_0001.bin",   // surprised
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h4uokk_0001.bin",   // calm
-                "https://imgbad.xmduzhong.com/i/2025/10/27/h5lop1_0001.bin"    // shy
-            };
-            // 检查是否需要下载
-            if (cached_emoticon_urls_ != server_emoticon_urls_) {
-                need_update_emoticons = true;
-                ESP_LOGI(TAG, "使用默认表情包URL，需要下载");
-            }
+            ESP_LOGW(TAG, "服务器未返回表情包URL，跳过表情包更新");
         }
         
         server_dynamic_urls_ = server_versions.dynamic_urls;
