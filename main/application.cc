@@ -450,7 +450,7 @@ void Application::ToggleChatState() {
     }
 }
 
-void Application::StartListening() {
+void Application::StartListening(bool skip_wake_message) {
     if (device_state_ == kDeviceStateActivating) {
         SetDeviceState(kDeviceStateIdle);
         return;
@@ -462,7 +462,7 @@ void Application::StartListening() {
     }
     
     if (device_state_ == kDeviceStateIdle) {
-        Schedule([this]() {
+        Schedule([this, skip_wake_message]() {
             bool was_channel_closed = !protocol_->IsAudioChannelOpened();
             if (was_channel_closed) {
                 SetDeviceState(kDeviceStateConnecting);
@@ -472,10 +472,14 @@ void Application::StartListening() {
                     return;
                 }
                 
-                // 如果是首次打开音频通道，发送按键唤醒消息
-                ESP_LOGI(TAG, "按住说话首次连接，发送唤醒消息给服务器");
-                last_button_wake_time_ = std::chrono::steady_clock::now();  // 记录按键唤醒时间
-                protocol_->SendWakeWordDetected("button");
+                // 如果是首次打开音频通道且未要求跳过，发送按键唤醒消息
+                if (!skip_wake_message) {
+                    ESP_LOGI(TAG, "按住说话首次连接，发送唤醒消息给服务器");
+                    last_button_wake_time_ = std::chrono::steady_clock::now();  // 记录按键唤醒时间
+                    protocol_->SendWakeWordDetected("button");
+                } else {
+                    ESP_LOGI(TAG, "按住对话模式，跳过唤醒消息");
+                }
             }
 
             SetListeningMode(kListeningModeManualStop);

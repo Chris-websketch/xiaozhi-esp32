@@ -26,7 +26,7 @@ Button::Button(gpio_num_t gpio_num, bool active_high) : gpio_num_(gpio_num) {
     button_config_t button_config = {
         .type = BUTTON_TYPE_GPIO,
         .long_press_time = 1000,
-        .short_press_time = 50,
+        .short_press_time = 200,  // 增加到200ms，让多次点击更容易触发
         .gpio_button_config = {
             .gpio_num = gpio_num,
             .active_level = static_cast<uint8_t>(active_high ? 1 : 0)
@@ -91,6 +91,7 @@ void Button::OnClick(std::function<void()> callback) {
     on_click_ = callback;
     iot_button_register_cb(button_handle_, BUTTON_SINGLE_CLICK, [](void* handle, void* usr_data) {
         Button* button = static_cast<Button*>(usr_data);
+        ESP_LOGD(TAG, "检测到单击事件");
         if (button->on_click_) {
             button->on_click_();
         }
@@ -106,6 +107,29 @@ void Button::OnDoubleClick(std::function<void()> callback) {
         Button* button = static_cast<Button*>(usr_data);
         if (button->on_double_click_) {
             button->on_double_click_();
+        }
+    }, this);
+}
+
+void Button::OnMultipleClick(int clicks, std::function<void()> callback) {
+    if (button_handle_ == nullptr) {
+        return;
+    }
+    on_multiple_click_ = callback;
+    button_event_config_t event_cfg = {
+        .event = BUTTON_MULTIPLE_CLICK,
+        .event_data = {
+            .multiple_clicks = {
+                .clicks = static_cast<uint16_t>(clicks)
+            }
+        }
+    };
+    ESP_LOGI(TAG, "注册%d次点击事件", clicks);
+    iot_button_register_event_cb(button_handle_, event_cfg, [](void* handle, void* usr_data) {
+        Button* button = static_cast<Button*>(usr_data);
+        ESP_LOGI(TAG, "检测到多次点击事件触发");
+        if (button->on_multiple_click_) {
+            button->on_multiple_click_();
         }
     }, this);
 }

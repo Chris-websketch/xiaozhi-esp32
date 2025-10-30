@@ -81,7 +81,7 @@ public:
     void DismissAlert();
     void AbortSpeaking(AbortReason reason);
     void ToggleChatState();
-    void StartListening();
+    void StartListening(bool skip_wake_message = false);
     void StopListening();
     // 快速结束监听：立即切到 idle，后台可选关闭音频通道，提升跟手性
     void StopListeningFast(bool close_channel_after = false);

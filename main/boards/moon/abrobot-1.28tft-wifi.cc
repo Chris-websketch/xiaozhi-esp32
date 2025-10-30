@@ -1506,7 +1506,8 @@ private:
     lv_timer_t* alarm_monitor_timer_ = nullptr;
     MqttMusicHandler* mqtt_music_handler_ = nullptr;
     bool is_screen_rotated_ = false;
-    esp_timer_handle_t rotation_check_timer_ = nullptr;  
+    esp_timer_handle_t rotation_check_timer_ = nullptr;
+    bool press_to_talk_mode_ = false;  
     static const char* API_URL;
     static const char* VERSION_URL;
     void InitializeCodecI2c() {
@@ -1730,6 +1731,11 @@ private:
                 ESP_LOGW(TAG, "用户交互已禁用，忽略按钮点击");
                 return;
             }
+            // 按住对话模式下，单击无效
+            if (press_to_talk_mode_) {
+                ESP_LOGI(TAG, "按住对话模式下，单击事件被忽略");
+                return;
+            }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
                 ResetWifiConfiguration();  
@@ -1738,6 +1744,11 @@ private:
         });
         boot_btn.OnLongPress([this]() {
             ESP_LOGI(TAG, "检测到长按boot按键");
+            // 按住对话模式下，长按用于说话，禁用屏幕旋转
+            if (press_to_talk_mode_) {
+                ESP_LOGI(TAG, "按住对话模式下，长按用于收音，屏幕旋转功能已禁用");
+                return;
+            }
             if (is_in_super_power_save_) {
                 ESP_LOGW(TAG, "设备处于超级省电模式，忽略屏幕旋转操作");
                 return;
@@ -1764,6 +1775,69 @@ private:
                 display_->ShowCenterNotification(Lang::Strings::SCREEN_ROTATED, 3000);
             }
             ESP_LOGI(TAG, "屏幕旋转状态: %s", new_rotation_state ? "已旋转90度" : "正常");
+        });
+        
+        // 注册3次点击事件 - 切换按住对话模式
+        boot_btn.OnMultipleClick(3, [this]() {
+            ESP_LOGI(TAG, "检测到3次点击，切换对话模式");
+            if (power_save_timer_) {
+                power_save_timer_->WakeUp();
+            }
+            if (is_in_super_power_save_) {
+                ESP_LOGW(TAG, "设备处于超级省电模式，忽略模式切换");
+                return;
+            }
+            if (display_ && static_cast<CustomLcdDisplay*>(display_)->user_interaction_disabled_) {
+                ESP_LOGW(TAG, "用户交互已禁用，忽略模式切换");
+                return;
+            }
+            
+            // 切换模式
+            press_to_talk_mode_ = !press_to_talk_mode_;
+            ESP_LOGI(TAG, "对话模式已切换为: %s", press_to_talk_mode_ ? "按住对话" : "点击对话");
+            
+            // 显示通知
+            if (display_) {
+                const char* message = press_to_talk_mode_ ? "按住对话模式" : "连续对话模式";
+                display_->ShowCenterNotification(message, 2000);
+            }
+        });
+        
+        // 注册按下事件 - 按住对话模式下开始收音
+        boot_btn.OnPressDown([this]() {
+            if (power_save_timer_) {
+                power_save_timer_->WakeUp();
+            }
+            if (!press_to_talk_mode_) {
+                return;
+            }
+            if (is_in_super_power_save_) {
+                ESP_LOGW(TAG, "设备处于超级省电模式，忽略按键");
+                return;
+            }
+            if (display_ && static_cast<CustomLcdDisplay*>(display_)->user_interaction_disabled_) {
+                ESP_LOGW(TAG, "用户交互已禁用，忽略按键");
+                return;
+            }
+            
+            ESP_LOGI(TAG, "按住对话模式：开始收音（不发送唤醒消息）");
+            Application::GetInstance().StartListening(true);  // 传入true跳过唤醒消息
+        });
+        
+        // 注册松开事件 - 按住对话模式下停止收音
+        boot_btn.OnPressUp([this]() {
+            if (!press_to_talk_mode_) {
+                return;
+            }
+            if (is_in_super_power_save_) {
+                return;
+            }
+            if (display_ && static_cast<CustomLcdDisplay*>(display_)->user_interaction_disabled_) {
+                return;
+            }
+            
+            ESP_LOGI(TAG, "按住对话模式：停止收音");
+            Application::GetInstance().StopListening();
         });
     }
     void InitializeIot() {
