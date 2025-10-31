@@ -15,7 +15,7 @@
 
 ## 工具列表
 
-本目录包含3个工具：
+本目录包含4个工具：
 
 ### 1. MQTT调试工具（图形界面）
 - **文件**: `mqtt_debug_tool.py`
@@ -32,6 +32,12 @@
 - **文件**: `test_middleware.py`
 - **功能**: 演示如何使用中间件API
 - **特性**: 各种闹钟类型测试
+
+### 4. 显示模式控制测试工具（命令行）
+- **文件**: `display_mode_test.py`
+- **功能**: 通过MQTT控制设备显示模式
+- **特性**: 支持动画/静态/表情包模式切换、自动测试、交互模式
+- **文档**: 详见 `DISPLAY_MODE_README.md`
 
 ## 安装依赖
 
@@ -64,6 +70,35 @@ python test_middleware.py
 ```
 
 详细API文档见：[MIDDLEWARE_README.md](MIDDLEWARE_README.md)
+
+### 显示模式控制工具
+
+```bash
+# 单次切换到表情包模式
+python display_mode_test.py \
+  --host mqtt.example.com \
+  --username your_username \
+  --password your_password \
+  --topic "devices/your_device_id/downlink" \
+  --mode emoticon
+
+# 自动测试所有模式
+python display_mode_test.py \
+  --host mqtt.example.com \
+  --username your_username \
+  --password your_password \
+  --topic "devices/your_device_id/downlink" \
+  --mode test
+
+# 交互模式
+python display_mode_test.py \
+  --host mqtt.example.com \
+  --username your_username \
+  --password your_password \
+  --topic "devices/your_device_id/downlink"
+```
+
+详细使用说明见：[DISPLAY_MODE_README.md](DISPLAY_MODE_README.md)
 
 ## 默认配置
 

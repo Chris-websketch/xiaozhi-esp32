@@ -189,6 +189,7 @@ class MQTTSignals(QObject):
     disconnected = Signal(str)  # message
     message_received = Signal(str, str, str)  # (timestamp, topic, payload)
     published = Signal(bool, str)  # (success, message)
+    device_status_changed = Signal(bool, str, str)  # (online, reason, timestamp)
 
 
 class MQTTClientWrapper:
@@ -319,6 +320,11 @@ class MainWindow(QMainWindow):
         self.mqtt_client = MQTTClientWrapper()
         self.subscribed_topics = {}  # {topic: qos}
         self.device_id = DEVICE_CLIENT_ID  # 设备ID用于主题拼接
+        self.device_online = False  # 设备在线状态
+        self.online_count = 0  # 上线次数
+        self.offline_count = 0  # 离线次数
+        self.last_online_time = None  # 最后上线时间
+        self.last_offline_time = None  # 最后离线时间
         self.init_ui()
         self.connect_signals()
         
@@ -427,6 +433,49 @@ class MainWindow(QMainWindow):
         group.setLayout(main_layout)
         return group
     
+    def create_device_status_panel(self):
+        """创建设备在线状态监控面板"""
+        panel = QGroupBox("设备在线状态 (LWT)")
+        layout = QVBoxLayout()
+        
+        # 状态指示
+        status_layout = QHBoxLayout()
+        status_layout.addWidget(QLabel("状态:"))
+        self.device_status_label = QLabel("未知")
+        self.device_status_label.setStyleSheet("color: gray; font-weight: bold; font-size: 11pt;")
+        status_layout.addWidget(self.device_status_label)
+        status_layout.addStretch()
+        layout.addLayout(status_layout)
+        
+        # 统计信息
+        stats_layout = QHBoxLayout()
+        stats_layout.addWidget(QLabel("上线次数:"))
+        self.online_count_label = QLabel("0")
+        self.online_count_label.setStyleSheet("color: green;")
+        stats_layout.addWidget(self.online_count_label)
+        
+        stats_layout.addWidget(QLabel("离线次数:"))
+        self.offline_count_label = QLabel("0")
+        self.offline_count_label.setStyleSheet("color: red;")
+        stats_layout.addWidget(self.offline_count_label)
+        stats_layout.addStretch()
+        layout.addLayout(stats_layout)
+        
+        # 时间信息
+        time_layout = QVBoxLayout()
+        self.last_online_label = QLabel("最后上线: --")
+        self.last_online_label.setStyleSheet("font-size: 8pt; color: #666;")
+        time_layout.addWidget(self.last_online_label)
+        
+        self.last_offline_label = QLabel("最后离线: --")
+        self.last_offline_label.setStyleSheet("font-size: 8pt; color: #666;")
+        time_layout.addWidget(self.last_offline_label)
+        layout.addLayout(time_layout)
+        
+        panel.setLayout(layout)
+        panel.setMaximumHeight(150)
+        return panel
+    
     def create_subscription_group(self):
         """创建订阅管理组"""
         group = QGroupBox("订阅管理")
@@ -451,8 +500,18 @@ class MainWindow(QMainWindow):
         ack_btn.clicked.connect(lambda: self.fill_topic("ack", True))
         quick_layout.addWidget(ack_btn)
         
+        status_btn = QPushButton("Status")
+        status_btn.setMaximumWidth(80)
+        status_btn.setToolTip("订阅设备在线状态主题（LWT机制）")
+        status_btn.clicked.connect(lambda: self.fill_topic("status", True))
+        quick_layout.addWidget(status_btn)
+        
         quick_layout.addStretch()
         layout.addLayout(quick_layout)
+        
+        # 设备在线状态监控面板
+        status_panel = self.create_device_status_panel()
+        layout.addWidget(status_panel)
         
         # 添加订阅控件
         add_layout = QHBoxLayout()
@@ -587,6 +646,7 @@ class MainWindow(QMainWindow):
         self.mqtt_client.signals.disconnected.connect(self.on_disconnected)
         self.mqtt_client.signals.message_received.connect(self.on_message_received)
         self.mqtt_client.signals.published.connect(self.on_published)
+        self.mqtt_client.signals.device_status_changed.connect(self.on_device_status_changed)
     
     def toggle_connection(self):
         """切换连接状态"""
@@ -720,13 +780,39 @@ class MainWindow(QMainWindow):
     
     def on_message_received(self, timestamp: str, topic: str, payload: str):
         """接收到消息"""
+        # 检查是否为status主题（LWT消息）
+        is_status_topic = '/status' in topic
+        
         # 格式化显示
-        msg = f"[{timestamp}] 📩 {topic}\n"
+        if is_status_topic:
+            msg = f"[{timestamp}] 🔔 [LWT] {topic}\n"
+        else:
+            msg = f"[{timestamp}] 📩 {topic}\n"
         
         # 尝试格式化JSON
         try:
             json_obj = json.loads(payload)
             payload_display = json.dumps(json_obj, indent=2, ensure_ascii=False)
+            
+            # 如果是status主题，检查在线状态
+            if is_status_topic and 'online' in json_obj:
+                online = json_obj.get('online', False)
+                reason = json_obj.get('reason', '')
+                
+                # 发送设备状态变化信号
+                self.mqtt_client.signals.device_status_changed.emit(online, reason, timestamp)
+                
+                # 高亮显示
+                if online:
+                    msg += "🟢 设备上线\n"
+                else:
+                    if reason == 'abnormal_disconnect':
+                        msg += "🔴 设备异常离线（LWT触发）\n"
+                    elif reason == 'normal_shutdown':
+                        msg += "🟠 设备正常离线\n"
+                    else:
+                        msg += "🔴 设备离线\n"
+            
             msg += f"{payload_display}\n"
             
             # 检查是否为ACK消息，需要自动回复
@@ -792,6 +878,36 @@ class MainWindow(QMainWindow):
                 template_data = templates[template_name]
                 json_str = json.dumps(template_data, indent=2, ensure_ascii=False)
                 self.pub_message_input.setPlainText(json_str)
+    
+    def on_device_status_changed(self, online: bool, reason: str, timestamp: str):
+        """设备在线状态变化"""
+        self.device_online = online
+        
+        if online:
+            # 设备上线
+            self.online_count += 1
+            self.last_online_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.device_status_label.setText("🟢 在线")
+            self.device_status_label.setStyleSheet("color: green; font-weight: bold; font-size: 11pt;")
+            self.last_online_label.setText(f"最后上线: {self.last_online_time}")
+            self.online_count_label.setText(str(self.online_count))
+        else:
+            # 设备离线
+            self.offline_count += 1
+            self.last_offline_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            if reason == 'abnormal_disconnect':
+                self.device_status_label.setText("🔴 离线(异常)")
+                self.device_status_label.setStyleSheet("color: red; font-weight: bold; font-size: 11pt;")
+            elif reason == 'normal_shutdown':
+                self.device_status_label.setText("🟠 离线(正常)")
+                self.device_status_label.setStyleSheet("color: orange; font-weight: bold; font-size: 11pt;")
+            else:
+                self.device_status_label.setText("🔴 离线")
+                self.device_status_label.setStyleSheet("color: red; font-weight: bold; font-size: 11pt;")
+            
+            self.last_offline_label.setText(f"最后离线: {self.last_offline_time} ({reason})")
+            self.offline_count_label.setText(str(self.offline_count))
     
     def auto_reply_ack(self, message_id: str):
         """自动回复ACK确认"""

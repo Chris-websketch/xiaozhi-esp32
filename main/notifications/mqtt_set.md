@@ -23,9 +23,24 @@ https://docs.emqx.com/zh/cloud/latest/connect_to_deployments/java_sdk.html
 https://github.com/eclipse-paho/paho.mqtt.java
 
 
-服务器发送消息，指定客户端设备接受订阅
-发布主题为：devices/{client_id}/downlink
-例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink
+## MQTT 主题架构总览
+
+所有设备通信基于统一的主题命名规范：`devices/{client_id}/{direction}`
+
+| 主题 | 方向 | QoS | Retained | 频率/触发 | 用途 |
+|------|------|-----|----------|-----------|------|
+| `devices/{client_id}/status` | 双向 | 1 | ✅ | 连接/断线时 | **在线状态监控**（LWT机制） |
+| `devices/{client_id}/uplink` | 上行 | 0 | ❌ | 每60秒 | 遥测数据上报（电池、内存、IoT状态等） |
+| `devices/{client_id}/downlink` | 下行 | 2 | ❌ | 服务端按需 | 服务端控制指令（IoT控制、系统命令、通知） |
+| `devices/{client_id}/ack` | 上行 | 2 | ❌ | 指令执行后 | 指令执行结果反馈 |
+
+**示例（client_id = 719ae1ad-9f2c-4277-9c99-1a317a478979）**：
+- `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/status` - 设备在线状态
+- `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/uplink` - 设备遥测数据
+- `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink` - 服务端下发控制指令
+- `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/ack` - 指令执行结果
+
+---
 
 # IoT 设备 MQTT 设置消息
 
@@ -149,16 +164,29 @@ https://github.com/eclipse-paho/paho.mqtt.java
 ```
 
 ## 4) ImageDisplay（图片显示模式）
+- 名称：`ImageDisplay`
+- 可用方法：
+  - `SetAnimatedMode`（设置为动画模式：根据音频状态自动播放动画）
+  - `SetStaticMode`（设置为静态模式：显示静态logo图片）
+  - `SetEmoticonMode`（设置为表情包模式：根据AI回复情绪显示表情包）
+  - `ToggleDisplayMode`（循环切换显示模式：动画→静态→表情包→动画）
+
 ```json
 {
   "type": "iot",
   "commands": [
     { "name": "ImageDisplay", "method": "SetAnimatedMode", "parameters": {} },
     { "name": "ImageDisplay", "method": "SetStaticMode", "parameters": {} },
+    { "name": "ImageDisplay", "method": "SetEmoticonMode", "parameters": {} },
     { "name": "ImageDisplay", "method": "ToggleDisplayMode", "parameters": {} }
   ]
 }
 ```
+
+**说明**：
+- 动画模式：说话时播放动画，静默时显示静态画面
+- 静态模式：固定显示logo图片
+- 表情包模式：根据AI回复的情绪（开心、悲伤、生气、惊讶、平静、害羞）显示对应的表情包
 
 ## 5) MusicPlayer（音乐播放器界面控制）
 - 名称：`MusicPlayer`
@@ -175,6 +203,45 @@ https://github.com/eclipse-paho/paho.mqtt.java
   ]
 }
 ```
+
+## 6) 显示模式切换 MQTT 控制（abrobot-1.28tft-wifi 专用）
+
+abrobot-1.28tft-wifi 板子支持通过 MQTT 命令切换显示模式。
+
+### 命令格式
+```json
+{
+  "command": "set_display_mode",
+  "params": {
+    "mode": "emoticon"
+  }
+}
+```
+
+**参数说明**：
+- `mode`：显示模式，可选值：
+  - `"animated"` - 动画模式（根据音频状态自动播放动画）
+  - `"static"` - 静态模式（显示静态 logo 图片）
+  - `"emoticon"` 或 `"emotion"` - 表情包模式（根据 AI 回复情绪显示表情包）
+
+**使用示例**：
+```json
+// 切换到表情包模式
+{"command":"set_display_mode","params":{"mode":"emoticon"}}
+
+// 切换到动画模式
+{"command":"set_display_mode","params":{"mode":"animated"}}
+
+// 切换到静态模式
+{"command":"set_display_mode","params":{"mode":"static"}}
+```
+
+**注意事项**：
+- 切换到表情包模式前，确保表情包资源已成功加载
+- 切换到静态模式需要 logo 图片已下载完成
+- 模式切换会自动保存到设备配置，重启后保持
+- 表情包支持的情绪类型：开心、悲伤、生气、惊讶、平静、害羞
+
 ## 设备控制
 
 服务器下发用于控制设备的系统/通知类消息，发布到设备专属下行主题：
@@ -209,11 +276,94 @@ https://github.com/eclipse-paho/paho.mqtt.java
 {"type":"notify","title":"标题","body":"内容"}
 ```
 
+## 设备状态主题（Status Topic - LWT机制）
+
+设备使用MQTT LWT（Last Will and Testament）机制实现在线状态的实时可靠监控。
+
+- 发布主题：devices/{client_id}/status
+- 例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/status
+- QoS：1（至少一次）
+- Retained：true（保留消息，服务端可随时查询最新状态）
+- Keep-Alive：**2秒**（快速离线检测，3秒内感知异常断线）
+
+### 状态消息类型
+
+#### 1) 设备上线
+设备MQTT连接成功后立即发布上线消息：
+```json
+{
+  "online": true,
+  "ts": 1730348220,
+  "clientId": "719ae1ad-9f2c-4277-9c99-1a317a478979"
+}
+```
+
+#### 2) 设备异常离线（LWT自动触发）
+当设备异常断线时（网络断开、设备崩溃、Keep-Alive超时），MQTT Broker自动发布此消息：
+```json
+{
+  "online": false,
+  "ts": 1730348220,
+  "reason": "abnormal_disconnect"
+}
+```
+**触发延迟**：Keep-Alive超时后（**约3秒**）
+
+#### 3) 设备正常离线
+设备正常关闭时主动发布离线消息：
+```json
+{
+  "online": false,
+  "ts": 1730348220,
+  "reason": "normal_shutdown"
+}
+```
+**触发延迟**：立即（约100ms）
+
+### 服务端监控建议
+
+**方式1：订阅retained状态主题（推荐）**
+```python
+# 订阅status主题，获取所有设备的在线状态变化
+client.subscribe("devices/+/status", qos=1)
+
+def on_message(client, userdata, msg):
+    status = json.loads(msg.payload)
+    device_id = msg.topic.split('/')[1]
+    
+    if status['online']:
+        print(f"设备 {device_id} 上线")
+    else:
+        reason = status.get('reason', 'unknown')
+        if reason == 'abnormal_disconnect':
+            print(f"设备 {device_id} 异常离线（网络或崩溃）")
+        elif reason == 'normal_shutdown':
+            print(f"设备 {device_id} 正常关闭")
+```
+
+**方式2：查询retained消息获取最新状态**
+```python
+# 随时查询设备最新状态（Broker立即返回retained消息）
+client.subscribe("devices/ESP32_ABC123/status", qos=1)
+```
+
+**方式3：组合监控（最可靠）**
+- 订阅status主题感知上线/离线事件（3秒内检测异常离线）
+- 监控uplink心跳超时（60秒未收到 = 可能离线）
+- 如果心跳超时，检查status主题确认状态
+
+**注意事项**：
+- 设备在浅睡眠模式下禁用WiFi省电，确保Keep-Alive包及时发送
+- 强制断电场景可在3秒内检测到设备离线
+- 网络抖动容忍度：2秒Keep-Alive可容忍WiFi短暂延迟
+
+---
+
 ## 设备上报（uplink 遥测）
 
 - 发布主题：devices/{client_id}/uplink
 - 例如：devices/719ae1ad-9f2c-4277-9c99-1a317a478979/uplink
-- 上报频率：每 30 秒（心跳任务定期上报）
+- 上报频率：每 60 秒（心跳任务定期上报）
 - QoS：0
 
 字段说明：
@@ -246,20 +396,20 @@ https://github.com/eclipse-paho/paho.mqtt.java
       - repeat_type：整数，重复类型（0=ONCE, 1=DAILY, 2=WEEKLY）
       - repeat_days：整数，周几掩码（WEEKLY类型使用）
   - ImageDisplay：图片显示状态
-    - mode：字符串，显示模式（"animated" 或 "static"）
+    - display_mode：整数，显示模式（0=动画模式, 1=静态模式, 2=表情包模式）
   - MusicPlayer：音乐播放器状态
     - visible：布尔值，界面是否可见
     - song_title：字符串，当前歌曲标题（如果显示中）
     - artist_name：字符串，当前艺术家名称（如果显示中）
 
-示例（无闹钟）：
+示例（无闹钟，动画模式）：
 ```json
-{"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
+{"type":"telemetry","online":true,"ts":1755272693,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.3","mac":"24:6f:28:aa:bb:cc","client_id":"3095dd17-a431-4a49-90e5-2207a31d327e","battery":{"level":100,"charging":false,"discharging":true},"memory":{"free_internal":49203,"min_free_internal":17567},"wifi":{"rssi":-76},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[]},"ImageDisplay":{"display_mode":0},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
 ```
 
-示例（包含闹钟）：
+示例（包含闹钟，表情包模式）：
 ```json
-{"type":"telemetry","online":true,"ts":1760371234,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.0","mac":"b8:f8:62:f0:b3:58","client_id":"719ae1ad-9f2c-4277-9c99-1a317a478979","battery":{"level":95,"charging":false,"discharging":true},"memory":{"free_internal":45678,"min_free_internal":15234},"wifi":{"rssi":-68},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[{"name":"daily_morning","time":1760414400,"repeat_type":1,"repeat_days":0},{"name":"weekly_meeting","time":1760457600,"repeat_type":2,"repeat_days":42}]},"ImageDisplay":{"mode":"animated"},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
+{"type":"telemetry","online":true,"ts":1760371234,"device_name":"abrobot-1.28tft-wifi","ota_version":"1.2.0","mac":"b8:f8:62:f0:b3:58","client_id":"719ae1ad-9f2c-4277-9c99-1a317a478979","battery":{"level":95,"charging":false,"discharging":true},"memory":{"free_internal":45678,"min_free_internal":15234},"wifi":{"rssi":-68},"iot_states":{"Screen":{"theme":"dark","brightness":100},"Speaker":{"volume":80},"Alarm":{"alarms":[{"name":"daily_morning","time":1760414400,"repeat_type":1,"repeat_days":0},{"name":"weekly_meeting","time":1760457600,"repeat_type":2,"repeat_days":42}]},"ImageDisplay":{"display_mode":2},"MusicPlayer":{"visible":false,"song_title":"","artist_name":""}}}
 ```
 
 ## 指令执行结果上报（ACK）
@@ -366,6 +516,22 @@ https://github.com/eclipse-paho/paho.mqtt.java
 
 ---
 
-**文档版本**: v2.0  
-**最后更新**: 2025-10-14  
-**重大变更**: 移除ACK确认机制，设备发送ACK后无需等待服务器回复
+**文档版本**: v2.6  
+**最后更新**: 2025-10-31  
+**重大变更**: 
+- **优化 MQTT Keep-Alive 配置**（v2.6）：调整为**2秒**，平衡速度与稳定性
+  - 异常离线检测：**约3秒**（仍然很快，适合强制断电场景）
+  - 网络负载优化：每2秒一次PING（每小时1800次，相比1秒减半）
+  - 稳定性提升：可容忍WiFi省电导致的短暂网络延迟
+  - 硬件开销：ESP32完全可承受，CPU负载<0.01%
+  - 浅睡眠优化：禁用WiFi省电模式，确保MQTT连接稳定
+- **LWT（Last Will and Testament）机制**：实现设备在线状态的快速可靠监控
+  - 异常离线检测：**约3秒**自动感知（拔电源/断网场景）
+  - 正常离线通知：立即发送（~100ms）
+  - 状态持久化：Retained消息，服务端随时可查询
+- **新增 devices/{client_id}/status 主题**：专用于设备在线状态上报
+- **调整上报频率**：从30秒调整为60秒，减少网络负载
+- 新增表情包显示模式支持（ImageDisplay.SetEmoticonMode）
+- 新增 abrobot-1.28tft-wifi 专用音乐播放器 MQTT 控制协议
+- 新增 set_display_mode 命令，支持通过 MQTT 切换显示模式（动画/静态/表情包）
+- 更新 ImageDisplay 状态字段为 display_mode（整数型）

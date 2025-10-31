@@ -14,6 +14,7 @@
 #include "config/resource_config.h"
 #include "settings.h"
 #include "boards/moon/iot_image_display.h"
+#include "ui/music_player_ui.h"
 
 #include <cstring>
 #include <cmath>
@@ -1500,6 +1501,14 @@ void Application::SetDeviceState(DeviceState state) {
 
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
+    
+    // 当从speaking状态切换到其他状态时，自动隐藏音乐播放器
+    if (previous_state == kDeviceStateSpeaking && state != kDeviceStateSpeaking) {
+        if (g_music_player_instance && g_music_player_instance->IsVisible()) {
+            ESP_LOGI(TAG, "设备状态从speaking切换到%s，自动隐藏音乐播放器", STATE_STRINGS[state]);
+            g_music_player_instance->Hide();
+        }
+    }
     // LED功能已移除
     if(state != kDeviceStateIdle) {
         display->SetIdle(false);

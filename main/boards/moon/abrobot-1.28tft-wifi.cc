@@ -568,7 +568,7 @@ public:
         ESP_LOGI(TAG, "音乐播放器UI已显示: %s - %s (持续时间: %lu ms)", title, artist, duration_ms);
     }
     void HideMusicPlayer() {
-        if (music_player_ui_ && music_player_active_) {
+        if (music_player_ui_ && music_player_ui_->IsVisible()) {
             music_player_ui_->Hide();
             music_player_active_ = false;
             ESP_LOGI(TAG, "音乐播放器UI已隐藏");
@@ -1723,6 +1723,7 @@ private:
                 ESP_LOGI(TAG, "从超级省电模式完全恢复到正常状态");
                 return; 
             }
+            
             if (power_save_timer_) {
                 power_save_timer_->WakeUp();
                 ESP_LOGI(TAG, "用户交互，唤醒省电定时器");
@@ -2044,6 +2045,50 @@ private:
                 }
                 cJSON_Delete(json);
             }
+        } else if (strcmp(command, "set_display_mode") == 0 && params) {
+            // 处理显示模式切换命令
+            cJSON* json = cJSON_Parse(params);
+            if (json) {
+                cJSON* mode_item = cJSON_GetObjectItem(json, "mode");
+                if (mode_item && cJSON_IsString(mode_item)) {
+                    const char* mode = mode_item->valuestring;
+                    
+                    // 构造IoT命令
+                    cJSON* iot_command = cJSON_CreateObject();
+                    cJSON_AddStringToObject(iot_command, "name", "ImageDisplay");
+                    cJSON_AddItemToObject(iot_command, "parameters", cJSON_CreateObject());
+                    
+                    if (strcmp(mode, "animated") == 0) {
+                        cJSON_AddStringToObject(iot_command, "method", "SetAnimatedMode");
+                        ESP_LOGI(TAG, "MQTT切换到动画模式");
+                    } else if (strcmp(mode, "static") == 0) {
+                        cJSON_AddStringToObject(iot_command, "method", "SetStaticMode");
+                        ESP_LOGI(TAG, "MQTT切换到静态模式");
+                    } else if (strcmp(mode, "emoticon") == 0 || strcmp(mode, "emotion") == 0) {
+                        cJSON_AddStringToObject(iot_command, "method", "SetEmoticonMode");
+                        ESP_LOGI(TAG, "MQTT切换到表情包模式");
+                    } else {
+                        ESP_LOGW(TAG, "未知的显示模式: %s", mode);
+                        cJSON_Delete(iot_command);
+                        cJSON_Delete(json);
+                        return;
+                    }
+                    
+                    // 通过ThingManager执行IoT命令
+                    auto& thing_manager = iot::ThingManager::GetInstance();
+                    std::string error;
+                    bool exec_ok = thing_manager.InvokeSync(iot_command, &error);
+                    
+                    if (!exec_ok) {
+                        ESP_LOGE(TAG, "切换显示模式失败: %s", error.c_str());
+                    } else {
+                        ESP_LOGI(TAG, "显示模式切换成功");
+                    }
+                    
+                    cJSON_Delete(iot_command);
+                }
+                cJSON_Delete(json);
+            }
         }
     }
     void AdjustAlarmCheckFrequency() {
@@ -2160,8 +2205,9 @@ private:
             ESP_LOGI(TAG, "屏幕亮度已降至10");
         }
         ESP_LOGI(TAG, "保持图片任务运行以确保时钟正常显示");
-        SetPowerSaveMode(true);
-        ESP_LOGI(TAG, "WiFi省电模式已启用");
+        // 浅睡眠时禁用WiFi省电，保持MQTT连接稳定性（Keep-Alive=2秒需要可靠网络）
+        // SetPowerSaveMode(true);
+        ESP_LOGI(TAG, "浅睡眠模式下保持WiFi全速，确保MQTT实时性");
         ESP_LOGI(TAG, "浅睡眠模式激活完成 - 时钟继续正常运行");
     }
     void ExitLightSleepMode() {

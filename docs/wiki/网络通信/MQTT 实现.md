@@ -284,6 +284,8 @@ H[ThingManager] --> I[Thing]
 3.  **心跳优化**: 心跳任务每60秒上报一次，平衡了状态实时性与网络/电量消耗。
 4.  **增量上报**: `ThingManager`支持`delta`模式，仅上报状态变化的设备，减少了不必要的网络流量。
 5.  **资源监控**: `MqttNotifier`在发布ACK消息时，会跟踪消息ID并处理超时重试，确保关键指令的可靠送达。
+6.  **Keep-Alive配置**: MQTT Keep-Alive设置为**2秒**，实现快速离线检测（3秒内检测到异常断线），适合强制断电场景。每2秒发送一次PING包（每小时1800次），硬件开销可忽略（CPU负载<0.01%）。
+7.  **浅睡眠网络优化**: 浅睡眠模式下**禁用WiFi省电**，保持WiFi全速运行，确保MQTT Keep-Alive包及时发送，避免因网络延迟导致的LWT误报。虽然功耗略增，但通过降低屏幕亮度仍能实现有效节能。
 
 ## 故障排除指南
 
@@ -293,6 +295,7 @@ H[ThingManager] --> I[Thing]
 *   **音频通道无法建立**: 确保`MqttProtocol`能成功连接MQTT，并收到服务器的`hello`响应。检查`ParseServerHello`函数是否正确解析了UDP服务器地址和AES密钥。
 *   **设备控制无响应**: 检查`ThingManager`是否已通过`AddThing`注册了目标设备。确认下发的JSON指令中`name`字段与设备名完全匹配。
 *   **省电模式后无法恢复连接**: **新增**: 检查`Stop()`后是否正确调用了`Start()`来重新初始化连接和后台任务。
+*   **频繁触发LWT离线告警**: 检查Keep-Alive配置（当前为2秒）和网络延迟。如果浅睡眠模式启用了WiFi省电，可能导致PING包延迟超时。当前浅睡眠已禁用WiFi省电以保证连接稳定性。
 
 **本节来源**
 - [mqtt_notifier.cc](file://main/notifications/mqtt_notifier.cc#L1-L392)
