@@ -61,7 +61,7 @@ LV_FONT_DECLARE(font_awesome_20_4);
 LV_FONT_DECLARE(font_awesome_30_4);  
 #define WALLPAPER_URL_CACHE_FILE "/model/wallpaper_urls.json"
 #define WALLPAPER_BASE_PATH "/model/wallpapers/"
-#define WALLPAPER_API_URL "http://110.42.35.132:8333/urls"
+#define WALLPAPER_API_URL "http://110.42.35.132:6969/urls"
 #define DARK_BACKGROUND_COLOR       lv_color_hex(0)           
 #define DARK_TEXT_COLOR             lv_color_black()          
 #define DARK_CHAT_BACKGROUND_COLOR  lv_color_hex(0)           
@@ -1849,6 +1849,7 @@ private:
         thing_manager.AddThing(iot::CreateThing("ImageDisplay"));    
         thing_manager.AddThing(iot::CreateThing("SubtitleControl")); 
         thing_manager.AddThing(new iot::MusicPlayerThing());
+        thing_manager.AddThing(iot::CreateThing("Telemetry"));       
 #if CONFIG_USE_ALARM
         thing_manager.AddThing(iot::CreateThing("AlarmIot"));
 #endif
@@ -3125,7 +3126,7 @@ public:
     }
     virtual void SetPowerSaveMode(bool enabled) override {
         if (!enabled && power_save_timer_) {
-            power_save_timer_->WakeUp();  
+            power_save_timer_->WakeUp();
         }
         wifi_mode_t mode;
         esp_err_t err = esp_wifi_get_mode(&mode);
@@ -3133,14 +3134,11 @@ public:
             ESP_LOGW(TAG, "WiFi驱动未初始化，跳过省电模式设置 (enabled=%s)", enabled ? "true" : "false");
             return;
         }
-        auto& app = Application::GetInstance();
-        DeviceState currentState = app.GetDeviceState();
-        if (currentState == kDeviceStateIdle || currentState == kDeviceStateListening || 
-            currentState == kDeviceStateConnecting || currentState == kDeviceStateSpeaking) {
-            WifiBoard::SetPowerSaveMode(enabled);
-        } else {
-            ESP_LOGW(TAG, "设备未完全启动(状态:%d)，跳过WiFi省电模式设置", (int)currentState);
-        }
+
+        // 禁用WiFi省电模式以保证MQTT连接稳定性（Keep-Alive=2秒需要可靠网络）
+        // MQTT心跳间隔很短，WiFi省电会导致周期性断线
+        ESP_LOGI(TAG, "强制保持WiFi全速运行，确保MQTT连接稳定 (requested=%s)", enabled ? "省电" : "全速");
+        WifiBoard::SetPowerSaveMode(false);  // 始终禁用WiFi省电
     }
     ~CustomBoard() {
         if (image_task_handle_ != nullptr) {

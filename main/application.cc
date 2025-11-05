@@ -2326,6 +2326,53 @@ void Application::StartMqttNotifier() {
 }
 
 /**
+ * @brief 通过MQTT uplink主题立即上报IoT设备状态
+ */
+void Application::TriggerMqttUplink() {
+    if (!notifier_) {
+        ESP_LOGW(TAG, "MQTT通知服务未初始化，无法上报遥测数据");
+        return;
+    }
+    
+    auto& thing_manager = iot::ThingManager::GetInstance();
+    std::string states;
+    if (!thing_manager.GetStatesJson(states, false)) {
+        ESP_LOGW(TAG, "没有IoT状态数据可上报");
+        return;
+    }
+    
+    // 构建上报的JSON消息
+    cJSON* root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "创建JSON对象失败");
+        return;
+    }
+    
+    cJSON_AddStringToObject(root, "type", "telemetry");
+    cJSON* states_array = cJSON_Parse(states.c_str());
+    if (states_array) {
+        cJSON_AddItemToObject(root, "states", states_array);
+    } else {
+        ESP_LOGE(TAG, "解析状态JSON失败");
+        cJSON_Delete(root);
+        return;
+    }
+    
+    // 添加时间戳
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000);
+    
+    // 通过MQTT uplink主题发送
+    bool ok = notifier_->PublishUplink(root, 0);
+    if (ok) {
+        ESP_LOGI(TAG, "遥测数据上报成功");
+    } else {
+        ESP_LOGW(TAG, "遥测数据上报失败");
+    }
+    
+    cJSON_Delete(root);
+}
+
+/**
  * @brief 获取设备配置信息
  * 从NVS存储中读取MQTT配置参数
  * @return DeviceConfig 设备配置结构，包含MQTT连接参数

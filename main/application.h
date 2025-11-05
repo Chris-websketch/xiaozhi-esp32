@@ -131,6 +131,11 @@ public:
     void StartMqttNotifier();
     
     /**
+     * @brief 通过MQTT uplink主题立即上报IoT设备状态
+     */
+    void TriggerMqttUplink();
+    
+    /**
      * @brief 获取设备配置信息
      * @return DeviceConfig 设备配置结构，包含MQTT连接参数
      */

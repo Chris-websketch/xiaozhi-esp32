@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLineEdit, QPushButton, QTextEdit, QLabel,
     QTableWidget, QTableWidgetItem, QComboBox, QCheckBox,
-    QSplitter, QHeaderView, QMessageBox, QSpinBox
+    QSplitter, QHeaderView, QMessageBox, QSpinBox, QGridLayout,
+    QScrollArea, QFrame, QColorDialog
 )
 from PySide6.QtCore import Qt, Signal, QObject
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor, QTextCursor
 
 from paho.mqtt import client as mqtt_client
 
@@ -34,6 +35,193 @@ DEVICE_CLIENT_ID = '719ae1ad-9f2c-4277-9c99-1a317a478979'  # ESP32设备ID
 DEBUG_CLIENT_ID = 'mqtt-debug-tool-' + ''.join(['{:02x}'.format(random.randint(0, 255)) for _ in range(4)])  # 调试工具专用ID
 CA_CERT_FILE = 'emqx_ca.crt'
 
+
+# 全局QSS样式
+APP_STYLESHEET = """
+/* 主窗口样式 */
+QMainWindow {
+    background-color: #f5f5f5;
+}
+
+/* 按钮通用样式 */
+QPushButton {
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 9pt;
+    border: 1px solid #ccc;
+    background-color: #ffffff;
+}
+
+QPushButton:hover {
+    background-color: #e8f4f8;
+    border-color: #0078d4;
+}
+
+QPushButton:pressed {
+    background-color: #c7e0f4;
+}
+
+QPushButton:disabled {
+    background-color: #f0f0f0;
+    color: #999;
+}
+
+/* IoT模板按钮样式 */
+.template-btn {
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 9pt;
+    text-align: left;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #ffffff, stop:1 #f0f0f0);
+}
+
+.template-btn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #e3f2fd, stop:1 #bbdefb);
+    border: 1px solid #2196f3;
+}
+
+.template-btn:pressed {
+    background: #90caf9;
+}
+
+/* 屏幕控制按钮 */
+.template-btn-screen {
+    color: #1976d2;
+    border-left: 3px solid #2196f3;
+}
+
+/* 音频控制按钮 */
+.template-btn-audio {
+    color: #7b1fa2;
+    border-left: 3px solid #9c27b0;
+}
+
+/* 闹钟控制按钮 */
+.template-btn-alarm {
+    color: #f57c00;
+    border-left: 3px solid #ff9800;
+}
+
+/* 图片显示按钮 */
+.template-btn-image {
+    color: #388e3c;
+    border-left: 3px solid #4caf50;
+}
+
+/* 音乐播放器按钮 */
+.template-btn-music {
+    color: #c62828;
+    border-left: 3px solid #f44336;
+}
+
+/* 字幕控制按钮 */
+.template-btn-subtitle {
+    color: #00796b;
+    border-left: 3px solid #009688;
+}
+
+/* 系统控制按钮 */
+.template-btn-system {
+    color: #d32f2f;
+    border-left: 3px solid #f44336;
+}
+
+/* 通知按钮 */
+.template-btn-notify {
+    color: #0288d1;
+    border-left: 3px solid #03a9f4;
+}
+
+/* GroupBox样式 */
+QGroupBox {
+    font-weight: bold;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    background-color: #ffffff;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px;
+}
+
+/* 连接按钮特殊样式 */
+#connect_btn {
+    background-color: #4caf50;
+    color: white;
+    font-weight: bold;
+    border: none;
+}
+
+#connect_btn:hover {
+    background-color: #66bb6a;
+}
+
+#disconnect_btn {
+    background-color: #f44336;
+    color: white;
+    font-weight: bold;
+    border: none;
+}
+
+#disconnect_btn:hover {
+    background-color: #ef5350;
+}
+
+/* 发送按钮样式 */
+#publish_btn {
+    background-color: #2196f3;
+    color: white;
+    font-weight: bold;
+    padding: 8px 20px;
+    border: none;
+}
+
+#publish_btn:hover {
+    background-color: #42a5f5;
+}
+
+/* 输入框样式 */
+QLineEdit, QTextEdit {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 5px;
+    background-color: #ffffff;
+}
+
+QLineEdit:focus, QTextEdit:focus {
+    border-color: #2196f3;
+}
+
+/* 表格样式 */
+QTableWidget {
+    border: 1px solid #ddd;
+    gridline-color: #e0e0e0;
+    background-color: #ffffff;
+}
+
+QTableWidget::item:selected {
+    background-color: #bbdefb;
+}
+
+QHeaderView::section {
+    background-color: #f5f5f5;
+    padding: 5px;
+    border: 1px solid #ddd;
+    font-weight: bold;
+}
+
+/* 滚动区域样式 */
+QScrollArea {
+    border: none;
+}
+"""
 
 # 消息模板库
 MESSAGE_TEMPLATES = {
@@ -120,18 +308,6 @@ MESSAGE_TEMPLATES = {
             "type": "iot",
             "commands": [
                 {"name": "MusicPlayer", "method": "Hide", "parameters": {}}
-            ]
-        },
-        "灯 - 打开": {
-            "type": "iot",
-            "commands": [
-                {"name": "Lamp", "method": "TurnOn", "parameters": {}}
-            ]
-        },
-        "灯 - 关闭": {
-            "type": "iot",
-            "commands": [
-                {"name": "Lamp", "method": "TurnOff", "parameters": {}}
             ]
         },
         "字幕控制 - 显示字幕": {
@@ -319,52 +495,74 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.mqtt_client = MQTTClientWrapper()
         self.subscribed_topics = {}  # {topic: qos}
+        self.topic_colors = {}  # {topic: color_hex}  主题颜色映射
         self.device_id = DEVICE_CLIENT_ID  # 设备ID用于主题拼接
         self.device_online = False  # 设备在线状态
         self.online_count = 0  # 上线次数
         self.offline_count = 0  # 离线次数
         self.last_online_time = None  # 最后上线时间
         self.last_offline_time = None  # 最后离线时间
+        # 预设主题颜色
+        self.preset_colors = ['#2196F3', '#4CAF50', '#FF9800', '#9C27B0', '#F44336', '#00BCD4', '#FFEB3B', '#E91E63']
+        self.color_index = 0  # 用于自动分配颜色
         self.init_ui()
         self.connect_signals()
         
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle('MQTT调试工具')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle('MQTT调试工具 - IoT命令控制台')
+        self.setGeometry(100, 100, 1400, 900)
+        
+        # 应用样式表
+        self.setStyleSheet(APP_STYLESHEET)
         
         # 主部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         
-        # 连接配置区
+        # 连接配置区（固定大小，不随窗口缩放）
         conn_group = self.create_connection_group()
-        main_layout.addWidget(conn_group)
+        conn_group.setMaximumHeight(120)  # 设置最大高度
+        conn_group.setMinimumHeight(120)  # 设置最小高度，实现固定大小
+        main_layout.addWidget(conn_group, 0)  # stretch=0 固定大小
         
-        # 分割器 - 上下分割
-        main_splitter = QSplitter(Qt.Vertical)
+        # 主分割器 - 左右分割
+        main_splitter = QSplitter(Qt.Horizontal)
         
-        # 上半部分 - 左右分割
-        top_splitter = QSplitter(Qt.Horizontal)
+        # 左侧区域 - 垂直分割（订阅管理 + 消息历史）
+        left_splitter = QSplitter(Qt.Vertical)
         
-        # 订阅管理区（左）
+        # 订阅管理区
         sub_group = self.create_subscription_group()
-        top_splitter.addWidget(sub_group)
+        left_splitter.addWidget(sub_group)
         
-        # 发布区（右）
-        pub_group = self.create_publish_group()
-        top_splitter.addWidget(pub_group)
-        
-        top_splitter.setSizes([400, 600])
-        main_splitter.addWidget(top_splitter)
-        
-        # 消息历史区（下）
+        # 消息历史区
         msg_group = self.create_message_history_group()
-        main_splitter.addWidget(msg_group)
+        left_splitter.addWidget(msg_group)
         
-        main_splitter.setSizes([300, 400])
-        main_layout.addWidget(main_splitter)
+        left_splitter.setSizes([400, 400])
+        main_splitter.addWidget(left_splitter)
+        
+        # 右侧区域 - 垂直分割（IoT命令面板 + 发布区）
+        right_splitter = QSplitter(Qt.Vertical)
+        
+        # IoT命令快捷按钮面板
+        template_panel = self.create_template_buttons_panel()
+        right_splitter.addWidget(template_panel)
+        
+        # 发布区
+        pub_group = self.create_publish_group()
+        right_splitter.addWidget(pub_group)
+        
+        right_splitter.setSizes([550, 250])
+        main_splitter.addWidget(right_splitter)
+        
+        # 左右等宽分割
+        main_splitter.setSizes([700, 700])
+        main_layout.addWidget(main_splitter, 1)  # stretch=1 响应式填充剩余空间
         
     def create_connection_group(self):
         """创建连接配置组"""
@@ -386,7 +584,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.port_input)
         
         self.ssl_checkbox = QCheckBox("SSL/TLS")
-        self.ssl_checkbox.setChecked(True)  # 默认启用SSL
+        self.ssl_checkbox.setChecked(False)  # 默认关闭SSL
         row1.addWidget(self.ssl_checkbox)
         
         self.auto_ack_checkbox = QCheckBox("自动回复ACK")
@@ -420,6 +618,7 @@ class MainWindow(QMainWindow):
         
         # 连接按钮
         self.connect_btn = QPushButton("连接")
+        self.connect_btn.setObjectName("connect_btn")
         self.connect_btn.setMaximumWidth(100)
         self.connect_btn.clicked.connect(self.toggle_connection)
         row2.addWidget(self.connect_btn)
@@ -535,20 +734,139 @@ class MainWindow(QMainWindow):
         
         # 订阅列表
         self.sub_table = QTableWidget()
-        self.sub_table.setColumnCount(3)
-        self.sub_table.setHorizontalHeaderLabels(['主题', 'QoS', '操作'])
+        self.sub_table.setColumnCount(4)
+        self.sub_table.setHorizontalHeaderLabels(['主题', 'QoS', '颜色', '操作'])
         self.sub_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.sub_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.sub_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.sub_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.sub_table.setSelectionBehavior(QTableWidget.SelectRows)
         layout.addWidget(self.sub_table)
         
         group.setLayout(layout)
         return group
     
+    def create_template_buttons_panel(self):
+        """创建IoT模板按钮面板"""
+        group = QGroupBox("⚡ IoT命令快捷面板")
+        main_layout = QVBoxLayout()
+        
+        # 创建滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(10)
+        
+        # 按类别组织按钮
+        categories = [
+            ("屏幕控制", "screen", ["屏幕 - 设置亮度", "屏幕 - 设置主题(dark)", "屏幕 - 设置主题(light)"]),
+            ("音频控制", "audio", ["扬声器 - 设置音量"]),
+            ("闹钟管理", "alarm", ["闹钟 - 一次性闹钟(60秒后)", "闹钟 - 每天重复闹钟", "闹钟 - 工作日闹钟", "闹钟 - 取消闹钟"]),
+            ("图片显示", "image", ["图片显示 - 动态模式", "图片显示 - 静态模式", "图片显示 - 表情包模式", "图片显示 - 切换显示模式"]),
+            ("音乐播放器", "music", ["音乐播放器 - 显示", "音乐播放器 - 隐藏"]),
+            ("字幕控制", "subtitle", ["字幕控制 - 显示字幕", "字幕控制 - 隐藏字幕", "字幕控制 - 切换显示状态"]),
+            ("系统控制", "system", ["设备重启(1秒延迟)", "设备重启(5秒延迟)"]),
+            ("通知消息", "notify", ["简单通知", "仅标题", "仅内容"])
+        ]
+        
+        for category_name, category_type, templates in categories:
+            # 分类标题
+            category_label = QLabel(f"━━ {category_name} ━━")
+            category_label.setStyleSheet("font-weight: bold; color: #666; font-size: 9pt; padding: 5px 0;")
+            scroll_layout.addWidget(category_label)
+            
+            # 按钮网格
+            grid = QGridLayout()
+            grid.setSpacing(6)
+            
+            for idx, template_name in enumerate(templates):
+                btn = QPushButton(template_name)
+                btn.setProperty("class", "template-btn")
+                btn.setProperty("category", category_type)
+                btn.setStyleSheet(f"""QPushButton {{
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-size: 9pt;
+                    text-align: left;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                stop:0 #ffffff, stop:1 #f8f8f8);
+                    border-left: 3px solid {self._get_category_color(category_type)};
+                }}
+                QPushButton:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                stop:0 #e3f2fd, stop:1 #bbdefb);
+                    border-left: 3px solid {self._get_category_color(category_type)};
+                }}
+                QPushButton:pressed {{
+                    background: #90caf9;
+                }}""")
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setMinimumHeight(35)
+                
+                # 设置工具提示
+                template_data = self._get_template_data(template_name)
+                if template_data:
+                    tooltip = json.dumps(template_data, indent=2, ensure_ascii=False)
+                    btn.setToolTip(f"点击填充模板\n\n{tooltip}")
+                
+                btn.clicked.connect(lambda checked, name=template_name: self.on_template_button_clicked(name))
+                
+                # 2列布局
+                row = idx // 2
+                col = idx % 2
+                grid.addWidget(btn, row, col)
+            
+            scroll_layout.addLayout(grid)
+        
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        main_layout.addWidget(scroll)
+        
+        group.setLayout(main_layout)
+        return group
+    
+    def _get_category_color(self, category: str) -> str:
+        """获取分类颜色"""
+        colors = {
+            "screen": "#2196f3",
+            "audio": "#9c27b0",
+            "alarm": "#ff9800",
+            "image": "#4caf50",
+            "music": "#f44336",
+            "subtitle": "#009688",
+            "system": "#f44336",
+            "notify": "#03a9f4"
+        }
+        return colors.get(category, "#999")
+    
+    def _get_template_data(self, template_name: str):
+        """获取模板数据"""
+        for category in MESSAGE_TEMPLATES.values():
+            if template_name in category:
+                return category[template_name]
+        return None
+    
+    def on_template_button_clicked(self, template_name: str):
+        """模板按钮点击处理"""
+        template_data = self._get_template_data(template_name)
+        if template_data:
+            # 填充主题（默认填充downlink）
+            self.fill_topic("downlink", False)
+            
+            # 填充消息内容
+            json_str = json.dumps(template_data, indent=2, ensure_ascii=False)
+            self.pub_message_input.setPlainText(json_str)
+            
+            # 记录日志
+            self.append_log(f"[模板] 已加载: {template_name}")
+    
     def create_publish_group(self):
         """创建发布组"""
-        group = QGroupBox("消息发布")
+        group = QGroupBox("📤 消息发布")
         layout = QVBoxLayout()
         
         # 主题和QoS
@@ -579,37 +897,23 @@ class MainWindow(QMainWindow):
         
         layout.addLayout(top_layout)
         
-        # 消息模板选择
-        template_layout = QHBoxLayout()
-        template_layout.addWidget(QLabel("消息模板:"))
-        
-        self.template_category_combo = QComboBox()
-        self.template_category_combo.addItem("-- 选择分类 --")
-        self.template_category_combo.addItems(list(MESSAGE_TEMPLATES.keys()))
-        self.template_category_combo.currentTextChanged.connect(self.on_template_category_changed)
-        template_layout.addWidget(self.template_category_combo)
-        
-        self.template_item_combo = QComboBox()
-        self.template_item_combo.addItem("-- 选择模板 --")
-        self.template_item_combo.setEnabled(False)
-        self.template_item_combo.currentTextChanged.connect(self.on_template_selected)
-        template_layout.addWidget(self.template_item_combo)
-        
-        template_layout.addStretch()
-        layout.addLayout(template_layout)
-        
         # 消息内容
-        layout.addWidget(QLabel("消息内容:"))
+        content_label = QLabel("消息内容:")
+        content_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(content_label)
         self.pub_message_input = QTextEdit()
-        self.pub_message_input.setPlaceholderText('输入消息内容或从上方选择模板\n支持JSON格式')
-        self.pub_message_input.setMaximumHeight(150)
+        self.pub_message_input.setPlaceholderText('从上方快捷按钮选择命令模板，或手动输入JSON消息')
+        self.pub_message_input.setMinimumHeight(80)
+        self.pub_message_input.setFont(QFont("Consolas", 9))
         layout.addWidget(self.pub_message_input)
         
         # 发送按钮
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        self.publish_btn = QPushButton("发送")
-        self.publish_btn.setMaximumWidth(100)
+        self.publish_btn = QPushButton("📨 发送消息")
+        self.publish_btn.setObjectName("publish_btn")
+        self.publish_btn.setMinimumWidth(120)
+        self.publish_btn.setMinimumHeight(35)
         self.publish_btn.clicked.connect(self.publish_message)
         btn_layout.addWidget(self.publish_btn)
         layout.addLayout(btn_layout)
@@ -701,27 +1005,63 @@ class MainWindow(QMainWindow):
         if self.mqtt_client.subscribe(topic, qos):
             self.subscribed_topics[topic] = qos
             
+            # 自动分配颜色（如果该主题还没有颜色）
+            if topic not in self.topic_colors:
+                self.topic_colors[topic] = self.preset_colors[self.color_index % len(self.preset_colors)]
+                self.color_index += 1
+            
             # 添加到表格
             row = self.sub_table.rowCount()
             self.sub_table.insertRow(row)
             self.sub_table.setItem(row, 0, QTableWidgetItem(topic))
             self.sub_table.setItem(row, 1, QTableWidgetItem(str(qos)))
             
+            # 颜色选择按钮
+            color_btn = QPushButton("██")
+            color_btn.setMaximumWidth(50)
+            current_color = self.topic_colors.get(topic, '#000000')
+            color_btn.setStyleSheet(f"background-color: {current_color}; color: white; font-weight: bold; border: 1px solid #999;")
+            color_btn.clicked.connect(lambda checked, t=topic: self.choose_topic_color(t))
+            self.sub_table.setCellWidget(row, 2, color_btn)
+            
             # 删除按钮
             remove_btn = QPushButton("删除")
             remove_btn.clicked.connect(lambda: self.remove_subscription(topic))
-            self.sub_table.setCellWidget(row, 2, remove_btn)
+            self.sub_table.setCellWidget(row, 3, remove_btn)
             
             # 清空输入
             self.sub_topic_input.clear()
             
-            self.append_log(f"[订阅] {topic} (QoS {qos})")
+            self.append_log(f"[订阅] {topic} (QoS {qos}) 颜色: {current_color}")
+    
+    def choose_topic_color(self, topic: str):
+        """选择主题颜色"""
+        current_color = QColor(self.topic_colors.get(topic, '#000000'))
+        color = QColorDialog.getColor(current_color, self, f"选择主题颜色: {topic}")
+        
+        if color.isValid():
+            color_hex = color.name()
+            self.topic_colors[topic] = color_hex
+            
+            # 更新表格中的颜色按钮
+            for row in range(self.sub_table.rowCount()):
+                if self.sub_table.item(row, 0).text() == topic:
+                    color_btn = self.sub_table.cellWidget(row, 2)
+                    if color_btn:
+                        color_btn.setStyleSheet(f"background-color: {color_hex}; color: white; font-weight: bold; border: 1px solid #999;")
+                    break
+            
+            self.append_log(f"[颜色] {topic} 设置为 {color_hex}")
     
     def remove_subscription(self, topic: str):
         """删除订阅"""
         if topic in self.subscribed_topics:
             self.mqtt_client.unsubscribe(topic)
             del self.subscribed_topics[topic]
+            
+            # 删除颜色映射（可选，保留可以记忆颜色）
+            # if topic in self.topic_colors:
+            #     del self.topic_colors[topic]
             
             # 从表格删除
             for row in range(self.sub_table.rowCount()):
@@ -759,11 +1099,15 @@ class MainWindow(QMainWindow):
             self.status_label.setText("已连接")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
             self.connect_btn.setText("断开")
+            self.connect_btn.setObjectName("disconnect_btn")
+            self.connect_btn.setStyle(self.connect_btn.style())  # 刷新样式
             self.append_log(f"[系统] {message}")
         else:
             self.status_label.setText("连接失败")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
             self.connect_btn.setText("连接")
+            self.connect_btn.setObjectName("connect_btn")
+            self.connect_btn.setStyle(self.connect_btn.style())  # 刷新样式
             QMessageBox.critical(self, "连接失败", message)
     
     def on_disconnected(self, message: str):
@@ -771,6 +1115,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText("未连接")
         self.status_label.setStyleSheet("color: gray; font-weight: bold;")
         self.connect_btn.setText("连接")
+        self.connect_btn.setObjectName("connect_btn")
+        self.connect_btn.setStyle(self.connect_btn.style())  # 刷新样式
         self.connect_btn.setEnabled(True)
         self.append_log(f"[系统] {message}")
         
@@ -783,11 +1129,14 @@ class MainWindow(QMainWindow):
         # 检查是否为status主题（LWT消息）
         is_status_topic = '/status' in topic
         
-        # 格式化显示
+        # 获取主题颜色（默认黑色）
+        topic_color = self.topic_colors.get(topic, '#000000')
+        
+        # 使用HTML格式化显示，应用主题颜色
         if is_status_topic:
-            msg = f"[{timestamp}] 🔔 [LWT] {topic}\n"
+            msg = f'<span style="color: {topic_color}; font-weight: bold;">[{timestamp}] 🔔 [LWT] {topic}</span><br>'
         else:
-            msg = f"[{timestamp}] 📩 {topic}\n"
+            msg = f'<span style="color: {topic_color}; font-weight: bold;">[{timestamp}] 📩 {topic}</span><br>'
         
         # 尝试格式化JSON
         try:
@@ -804,27 +1153,34 @@ class MainWindow(QMainWindow):
                 
                 # 高亮显示
                 if online:
-                    msg += "🟢 设备上线\n"
+                    msg += '<span style="color: green;">🟢 设备上线</span><br>'
                 else:
                     if reason == 'abnormal_disconnect':
-                        msg += "🔴 设备异常离线（LWT触发）\n"
+                        msg += '<span style="color: red;">🔴 设备异常离线（LWT触发）</span><br>'
                     elif reason == 'normal_shutdown':
-                        msg += "🟠 设备正常离线\n"
+                        msg += '<span style="color: orange;">🟠 设备正常离线</span><br>'
                     else:
-                        msg += "🔴 设备离线\n"
+                        msg += '<span style="color: red;">🔴 设备离线</span><br>'
             
-            msg += f"{payload_display}\n"
+            # JSON内容使用主题颜色显示
+            msg += f'<pre style="color: {topic_color}; margin: 5px 0;">{payload_display}</pre>'
             
             # 检查是否为ACK消息，需要自动回复
             # 只要是发送到ack主题且包含message_id的消息就回复
             if self.auto_ack_checkbox.isChecked() and '/ack' in topic and 'message_id' in json_obj:
                 self.auto_reply_ack(json_obj['message_id'])
         except:
-            msg += f"{payload}\n"
+            # 非-JSON数据使用主题颜色显示
+            msg += f'<pre style="color: {topic_color}; margin: 5px 0;">{payload}</pre>'
         
-        msg += "-" * 80 + "\n"
+        msg += '<hr style="border: none; border-top: 1px solid #ddd; margin: 10px 0;">'
         
-        self.msg_history.append(msg)
+        # 使用insertHtml而不append以支持HTML格式
+        cursor = self.msg_history.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.msg_history.setTextCursor(cursor)
+        self.msg_history.insertHtml(msg)
+        
         # 滚动到底部
         self.msg_history.verticalScrollBar().setValue(
             self.msg_history.verticalScrollBar().maximum()

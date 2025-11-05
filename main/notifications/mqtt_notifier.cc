@@ -77,7 +77,7 @@ void MqttNotifier::Stop() {
 		cJSON_AddStringToObject(offline_msg, "reason", "normal_shutdown");
 		char* offline_payload = cJSON_PrintUnformatted(offline_msg);
 		if (offline_payload) {
-			mqtt_->Publish(status_topic_, offline_payload, 1);
+			mqtt_->Publish(status_topic_, offline_payload, 1, true);
 			ESP_LOGI(TAG, "Published offline status (normal shutdown)");
 			cJSON_free(offline_payload);
 		}
@@ -102,12 +102,14 @@ bool MqttNotifier::ConnectInternal() {
 		mqtt_ = nullptr;
 	}
 	mqtt_ = Board::GetInstance().CreateMqtt();
-	// Keep-Alive设置为2秒，实现快速异常离线检测
-	// 优势：异常断线可在3秒内被检测到（拔电源/断网等）
-	// 硬件开销：ESP32完全可承受，CPU负载<0.01%
-	// 代价：每2秒发送一次PING包（每小时1800次，但每次仅2字节）
-	// 配合浅睡眠时禁用WiFi省电，确保连接稳定性
-	mqtt_->SetKeepAlive(2);
+	// 三层快速检测机制：TCP KeepAlive + MQTT Keep-Alive(5秒) + 应用心跳(10秒)
+	// TCP层检测：3秒探测连接状态
+	// MQTT协议层：设备断电后5-7秒内Broker触发LWT离线消息（接近瞬时）
+	// 应用层检测：服务端15秒未收到心跳即判定离线，二次确认避免误判
+	// 网络开销：PING包每小时720次 + 心跳包每小时360次，总计<15KB/h
+	// 检测速度：断电后3-5秒快速检测 + 15秒可靠确认
+	// 稳定性：通过应用心跳冗余机制，降低WiFi抖动导致的误判
+	mqtt_->SetKeepAlive(5);
 
 	// 配置LWT（Last Will and Testament）遗嘱消息
 	// 当设备异常断线时，MQTT Broker会自动发布此消息，服务端可在1-2秒内感知设备离线
@@ -118,7 +120,7 @@ bool MqttNotifier::ConnectInternal() {
 		cJSON_AddStringToObject(lwt_msg, "reason", "abnormal_disconnect");
 		char* lwt_payload = cJSON_PrintUnformatted(lwt_msg);
 		if (lwt_payload) {
-			mqtt_->SetLastWill(status_topic_, lwt_payload, 1, true);
+			mqtt_->SetLastWill(status_topic_, lwt_payload, 2, true);
 			cJSON_free(lwt_payload);
 		}
 		cJSON_Delete(lwt_msg);
@@ -144,17 +146,18 @@ bool MqttNotifier::ConnectInternal() {
 		}
 	});
 	
-	// 注册重连成功回调：重新订阅主题和发布在线状态
+	// 注册连接成功回调：订阅主题和发布在线状态
+	// 此回调会在初始连接和每次重连成功时都被触发
 	mqtt_->OnConnected([this]() {
-		ESP_LOGI(TAG, "MQTT reconnected, restoring subscriptions and status");
+		ESP_LOGI(TAG, "MQTT connected, restoring subscriptions and publishing online status");
 		
-		// 重新订阅下行主题
+		// 订阅下行主题（QoS 2确保可靠控制）
 		if (!downlink_topic_.empty()) {
 			bool sub_ok = mqtt_->Subscribe(downlink_topic_, 2);
-			ESP_LOGI(TAG, "Re-subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
+			ESP_LOGI(TAG, "Subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
 		}
 		
-		// 重新发布设备上线消息
+		// 发布设备上线消息（QoS 1确保至少送达一次）
 		if (!status_topic_.empty()) {
 			cJSON* online_msg = cJSON_CreateObject();
 			cJSON_AddBoolToObject(online_msg, "online", true);
@@ -162,8 +165,8 @@ bool MqttNotifier::ConnectInternal() {
 			cJSON_AddStringToObject(online_msg, "clientId", client_id_.c_str());
 			char* online_payload = cJSON_PrintUnformatted(online_msg);
 			if (online_payload) {
-				mqtt_->Publish(status_topic_, online_payload, 1);
-				ESP_LOGI(TAG, "Re-publish online status to %s", status_topic_.c_str());
+				bool pub_ok = mqtt_->Publish(status_topic_, online_payload, 1, true);
+				ESP_LOGI(TAG, "Publish online status to %s: %s", status_topic_.c_str(), pub_ok ? "ok" : "fail");
 				cJSON_free(online_payload);
 			}
 			cJSON_Delete(online_msg);
@@ -192,10 +195,10 @@ bool MqttNotifier::ConnectInternal() {
 		return false;
 	}
 
-	// 启动心跳任务（每60秒上报在线状态+指标）
+	// 启动心跳任务（每10秒上报在线状态+指标）
 	if (heartbeat_task_handle_ == nullptr) {
 		xTaskCreate([](void* arg){
-			static const int kIntervalMs = 60000;  // 调整为60秒，减少网络负载
+			static const int kIntervalMs = 10000;  // 10秒心跳，配合5秒Keep-Alive实现快速可靠检测
 			MqttNotifier* self = static_cast<MqttNotifier*>(arg);
 			for(;;){
 				if (self->mqtt_ && self->mqtt_->IsConnected()) {
@@ -296,27 +299,8 @@ bool MqttNotifier::ConnectInternal() {
 		}, "mqtt_heartbeat", 4096, this, 3, &heartbeat_task_handle_);
 	}
 
-	// 显式订阅下行主题，确保服务端推送能到达
-	if (!downlink_topic_.empty()) {
-		// 可靠控制：订阅使用 QoS 2
-		bool sub_ok = mqtt_->Subscribe(downlink_topic_, 2);
-		ESP_LOGI(TAG, "Subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
-	}
-
-	// 发布设备上线消息（retained消息，服务端随时可查询最新状态）
-	if (!status_topic_.empty()) {
-		cJSON* online_msg = cJSON_CreateObject();
-		cJSON_AddBoolToObject(online_msg, "online", true);
-		cJSON_AddNumberToObject(online_msg, "ts", (double)time(NULL));
-		cJSON_AddStringToObject(online_msg, "clientId", client_id_.c_str());
-		char* online_payload = cJSON_PrintUnformatted(online_msg);
-		if (online_payload) {
-			bool pub_ok = mqtt_->Publish(status_topic_, online_payload, 1);
-			ESP_LOGI(TAG, "Publish online status to %s: %s", status_topic_.c_str(), pub_ok ? "ok" : "fail");
-			cJSON_free(online_payload);
-		}
-		cJSON_Delete(online_msg);
-	}
+	// 订阅和在线消息发布已统一移到OnConnected回调中处理
+	// 这样可以确保初始连接和每次重连都能正确发送在线消息
 	
 	ESP_LOGI(TAG, "MQTT notifier connected and ready with LWT");
 	return true;
