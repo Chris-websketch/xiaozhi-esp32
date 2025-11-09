@@ -28,3 +28,4 @@ __pycache__/
 .qoder/
 .spec-workflow/
 .cache/
+.component_hash
