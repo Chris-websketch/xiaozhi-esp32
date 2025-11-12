@@ -331,9 +331,38 @@ esp_err_t ImageResourceManager::CheckAndUpdateAllResources(const char* api_url, 
         
         // 检查表情包版本
         if (!server_versions.emoticon_urls.empty()) {
-            if (cached_emoticon_urls_ != server_versions.emoticon_urls) {
+            // 输出本地和服务器表情包URL对比
+            ESP_LOGI(TAG, "表情包版本对比 - 本地:%zu个, 服务器:%zu个", 
+                    cached_emoticon_urls_.size(), server_versions.emoticon_urls.size());
+            
+            // 详细对比每个URL
+            bool urls_match = (cached_emoticon_urls_.size() == server_versions.emoticon_urls.size());
+            if (urls_match) {
+                for (size_t i = 0; i < server_versions.emoticon_urls.size(); i++) {
+                    const char* emotion_names[] = {"happy", "sad", "angry", "surprised", "calm", "shy"};
+                    const char* name = (i < 6) ? emotion_names[i] : "unknown";
+                    
+                    if (i < cached_emoticon_urls_.size()) {
+                        bool same = (cached_emoticon_urls_[i] == server_versions.emoticon_urls[i]);
+                        ESP_LOGI(TAG, "  [%zu:%s] %s", i, name, same ? "一致" : "不同");
+                        // 始终输出URL进行对比
+                        ESP_LOGI(TAG, "    本地: %s", cached_emoticon_urls_[i].c_str());
+                        ESP_LOGI(TAG, "    服务: %s", server_versions.emoticon_urls[i].c_str());
+                        if (!same) {
+                            urls_match = false;
+                        }
+                    } else {
+                        ESP_LOGI(TAG, "  [%zu:%s] 本地缺失", i, name);
+                        urls_match = false;
+                    }
+                }
+            }
+            
+            if (!urls_match) {
                 need_update_emoticons = true;
                 ESP_LOGI(TAG, "表情包需要更新");
+            } else {
+                ESP_LOGI(TAG, "表情包URL一致，无需更新");
             }
             server_emoticon_urls_ = server_versions.emoticon_urls;
         } else {
