@@ -62,6 +62,7 @@ private:
 	std::string uplink_topic_;
 	std::string ack_topic_;
 	std::string status_topic_;  // 设备状态主题（用于LWT和在线状态）
+	std::string broadcast_topic_;  // 广播主题（所有设备共享）
 	bool started_ = false;
 	TaskHandle_t heartbeat_task_handle_ = nullptr;
 };

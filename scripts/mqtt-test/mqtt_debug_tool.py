@@ -355,6 +355,30 @@ MESSAGE_TEMPLATES = {
             "type": "notify",
             "body": "这是通知的详细内容"
         }
+    },
+    "广播测试": {
+        "广播通知 - 系统维护": {
+            "type": "notify",
+            "title": "系统维护通知",
+            "body": "服务器将于今晚22:00进行维护，预计持续30分钟"
+        },
+        "广播通知 - 固件更新": {
+            "type": "notify",
+            "title": "固件更新提醒",
+            "body": "新版本固件已发布，请及时更新"
+        },
+        "广播IoT - 统一调整亮度": {
+            "type": "iot",
+            "commands": [
+                {"name": "Screen", "method": "SetBrightness", "parameters": {"brightness": 50}}
+            ]
+        },
+        "广播IoT - 统一设置音量": {
+            "type": "iot",
+            "commands": [
+                {"name": "Speaker", "method": "SetVolume", "parameters": {"volume": 60}}
+            ]
+        }
     }
 }
 
@@ -705,6 +729,12 @@ class MainWindow(QMainWindow):
         status_btn.clicked.connect(lambda: self.fill_topic("status", True))
         quick_layout.addWidget(status_btn)
         
+        broadcast_btn = QPushButton("Broadcast")
+        broadcast_btn.setMaximumWidth(80)
+        broadcast_btn.setToolTip("订阅全局广播主题（所有设备共享）")
+        broadcast_btn.clicked.connect(lambda: self.fill_topic("broadcast", True))
+        quick_layout.addWidget(broadcast_btn)
+        
         quick_layout.addStretch()
         layout.addLayout(quick_layout)
         
@@ -769,7 +799,8 @@ class MainWindow(QMainWindow):
             ("音乐播放器", "music", ["音乐播放器 - 显示", "音乐播放器 - 隐藏"]),
             ("字幕控制", "subtitle", ["字幕控制 - 显示字幕", "字幕控制 - 隐藏字幕", "字幕控制 - 切换显示状态"]),
             ("系统控制", "system", ["设备重启(1秒延迟)", "设备重启(5秒延迟)"]),
-            ("通知消息", "notify", ["简单通知", "仅标题", "仅内容"])
+            ("通知消息", "notify", ["简单通知", "仅标题", "仅内容"]),
+            ("广播测试", "broadcast", ["广播通知 - 系统维护", "广播通知 - 固件更新", "广播IoT - 统一调整亮度", "广播IoT - 统一设置音量"])
         ]
         
         for category_name, category_type, templates in categories:
@@ -813,7 +844,7 @@ class MainWindow(QMainWindow):
                     tooltip = json.dumps(template_data, indent=2, ensure_ascii=False)
                     btn.setToolTip(f"点击填充模板\n\n{tooltip}")
                 
-                btn.clicked.connect(lambda checked, name=template_name: self.on_template_button_clicked(name))
+                btn.clicked.connect(lambda checked=False, name=template_name: self.on_template_button_clicked(name))
                 
                 # 2列布局
                 row = idx // 2
@@ -839,7 +870,8 @@ class MainWindow(QMainWindow):
             "music": "#f44336",
             "subtitle": "#009688",
             "system": "#f44336",
-            "notify": "#03a9f4"
+            "notify": "#03a9f4",
+            "broadcast": "#ff5722"
         }
         return colors.get(category, "#999")
     
@@ -854,8 +886,11 @@ class MainWindow(QMainWindow):
         """模板按钮点击处理"""
         template_data = self._get_template_data(template_name)
         if template_data:
-            # 填充主题（默认填充downlink）
-            self.fill_topic("downlink", False)
+            # 根据模板类型填充主题
+            if template_name.startswith("广播"):
+                self.fill_topic("broadcast", False)
+            else:
+                self.fill_topic("downlink", False)
             
             # 填充消息内容
             json_str = json.dumps(template_data, indent=2, ensure_ascii=False)
@@ -882,6 +917,12 @@ class MainWindow(QMainWindow):
         uplink_btn.setMaximumWidth(90)
         uplink_btn.clicked.connect(lambda: self.fill_topic("uplink", False))
         top_layout.addWidget(uplink_btn)
+        
+        broadcast_btn = QPushButton("📡Broadcast")
+        broadcast_btn.setMaximumWidth(90)
+        broadcast_btn.setToolTip("全局广播主题（所有设备）")
+        broadcast_btn.clicked.connect(lambda: self.fill_topic("broadcast", False))
+        top_layout.addWidget(broadcast_btn)
         
         top_layout.addWidget(QLabel("主题:"))
         self.pub_topic_input = QLineEdit()
@@ -1203,7 +1244,11 @@ class MainWindow(QMainWindow):
     
     def fill_topic(self, topic_type: str, for_subscription: bool):
         """填充快捷主题"""
-        topic = f"devices/{self.device_id}/{topic_type}"
+        # 广播主题不拼接设备ID
+        if topic_type == "broadcast":
+            topic = "devices/broadcast"
+        else:
+            topic = f"devices/{self.device_id}/{topic_type}"
         
         if for_subscription:
             self.sub_topic_input.setText(topic)

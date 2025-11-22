@@ -33,12 +33,43 @@ https://github.com/eclipse-paho/paho.mqtt.java
 | `devices/{client_id}/uplink` | 上行 | 0 | ❌ | 每60秒 | 遥测数据上报（电池、内存、IoT状态等） |
 | `devices/{client_id}/downlink` | 下行 | 2 | ❌ | 服务端按需 | 服务端控制指令（IoT控制、系统命令、通知） |
 | `devices/{client_id}/ack` | 上行 | 2 | ❌ | 指令执行后 | 指令执行结果反馈 |
+| `devices/broadcast` | 下行 | 1 | ❌ | 服务端按需 | **全局广播**（所有设备同时接收） |
 
 **示例（client_id = 719ae1ad-9f2c-4277-9c99-1a317a478979）**：
 - `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/status` - 设备在线状态
 - `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/uplink` - 设备遥测数据
 - `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/downlink` - 服务端下发控制指令
 - `devices/719ae1ad-9f2c-4277-9c99-1a317a478979/ack` - 指令执行结果
+- `devices/broadcast` - 全局广播（所有设备共享）
+
+### 广播主题说明
+
+**主题**：`devices/broadcast`  
+**用途**：服务器向所有在线设备同时发送通知消息  
+**QoS**：1（确保消息至少送达一次）  
+**消息格式**：与单设备下行主题完全相同，支持所有 `system`、`notify`、`iot` 类型消息
+
+**使用场景**：
+- 批量系统维护通知
+- 全体设备固件更新提醒
+- 紧急通知广播
+- 统一配置下发
+
+**示例 - 向所有设备发送通知**：
+```json
+{"type":"notify","title":"系统维护通知","body":"服务器将于今晚22:00进行维护，预计持续30分钟"}
+```
+
+**示例 - 向所有设备发送IoT控制指令**：
+```json
+{"type":"iot","commands":[{"name":"Screen","method":"SetBrightness","parameters":{"brightness":50}}]}
+```
+
+**注意事项**：
+- 广播消息会被所有在线设备接收并执行
+- 设备会对广播消息发送ACK到各自的ack主题
+- 广播不影响单设备下行功能，两者可并行使用
+- 慎用广播重启命令，避免所有设备同时重启
 
 ---
 
@@ -516,9 +547,14 @@ client.subscribe("devices/ESP32_ABC123/status", qos=1)
 
 ---
 
-**文档版本**: v2.6  
-**最后更新**: 2025-10-31  
+**文档版本**: v2.7  
+**最后更新**: 2025-11-22  
 **重大变更**: 
+- **新增全局广播主题**（v2.7）：`devices/broadcast`
+  - 支持一次性向所有在线设备发送消息
+  - QoS 1确保消息可靠送达
+  - 支持所有消息类型（system、notify、iot）
+  - 与单设备下行功能完全兼容
 - **优化 MQTT Keep-Alive 配置**（v2.6）：调整为**2秒**，平衡速度与稳定性
   - 异常离线检测：**约3秒**（仍然很快，适合强制断电场景）
   - 网络负载优化：每2秒一次PING（每小时1800次，相比1秒减半）

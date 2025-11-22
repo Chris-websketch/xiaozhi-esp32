@@ -52,6 +52,8 @@ bool MqttNotifier::LoadSettings() {
 		// 计算状态主题（用于LWT和在线状态）
 		status_topic_ = std::string("devices/") + client_id_ + "/status";
 	}
+	// 设置广播主题（所有设备共享）
+	broadcast_topic_ = "devices/broadcast";
 	if (endpoint_.empty() || client_id_.empty()) {
 		ESP_LOGW(TAG, "MQTT notifier settings incomplete (endpoint/client_id)");
 		return false;
@@ -155,6 +157,12 @@ bool MqttNotifier::ConnectInternal() {
 		if (!downlink_topic_.empty()) {
 			bool sub_ok = mqtt_->Subscribe(downlink_topic_, 2);
 			ESP_LOGI(TAG, "Subscribe %s: %s", downlink_topic_.c_str(), sub_ok ? "ok" : "fail");
+		}
+		
+		// 订阅广播主题（QoS 1确保消息至少送达一次）
+		if (!broadcast_topic_.empty()) {
+			bool sub_ok = mqtt_->Subscribe(broadcast_topic_, 1);
+			ESP_LOGI(TAG, "Subscribe broadcast %s: %s", broadcast_topic_.c_str(), sub_ok ? "ok" : "fail");
 		}
 		
 		// 发布设备上线消息（QoS 1确保至少送达一次）
