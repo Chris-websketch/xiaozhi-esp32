@@ -2,6 +2,7 @@
 #include "boards/common/board.h"
 #include "boards/common/wifi_board.h"
 
+#include <algorithm>
 #include <freertos/task.h>
 #include <esp_log.h>
 #include <esp_flash.h>
@@ -429,6 +430,8 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     static GeoLocationInfo cached_result;
     static bool cache_initialized = false;
     static uint32_t last_request_time = 0;
+    static uint32_t last_failure_time = 0;
+    static int failure_count = 0;
     
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
@@ -438,6 +441,15 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
         ESP_LOGD(TAG, "Returning cached geolocation info for country %s", 
                  cached_result.country_code.c_str());
         return cached_result;
+    }
+    
+    // 如果最近有失败记录，短期内跳过请求（避免反复尝试阻塞）
+    // 失败次数越多，等待时间越长：30秒 * failure_count，最长5分钟
+    uint32_t skip_duration = std::min(30000u * failure_count, 300000u);
+    if (failure_count > 0 && (current_time - last_failure_time) < skip_duration) {
+        ESP_LOGD(TAG, "Skipping geolocation request due to recent failure (retry in %lu ms)", 
+                 skip_duration - (current_time - last_failure_time));
+        return cached_result; // 返回空结果或上次缓存
     }
     
     // 如果正在请求中（防止并发请求），返回缓存的结果
@@ -462,7 +474,9 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     // 创建HTTP客户端
     auto http = Board::GetInstance().CreateHttp();
     if (!http) {
-        ESP_LOGE(TAG, "Failed to create HTTP client for geolocation");
+        ESP_LOGE(TAG, "Failed to create HTTP client for geolocation, skipping");
+        failure_count++;
+        last_failure_time = current_time;
         requesting = false;
         return result;
     }
@@ -476,8 +490,10 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     // 发送请求到ipinfo.io
     const char* ipinfo_url = "https://ipinfo.io/json";
     if (!http->Open("GET", ipinfo_url)) {
-        ESP_LOGE(TAG, "Failed to open connection to ipinfo.io");
+        ESP_LOGW(TAG, "Failed to open connection to ipinfo.io, skipping IP check");
         delete http;
+        failure_count++;
+        last_failure_time = current_time;
         requesting = false;
         return result;
     }
@@ -488,7 +504,9 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     delete http;
     
     if (response.empty()) {
-        ESP_LOGE(TAG, "Empty response from ipinfo.io");
+        ESP_LOGW(TAG, "Empty response from ipinfo.io, skipping IP check");
+        failure_count++;
+        last_failure_time = current_time;
         requesting = false;
         return result;
     }
@@ -498,7 +516,9 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
     // 解析JSON响应
     cJSON* root = cJSON_Parse(response.c_str());
     if (root == NULL) {
-        ESP_LOGE(TAG, "Failed to parse geolocation JSON response");
+        ESP_LOGW(TAG, "Failed to parse geolocation JSON response, skipping IP check");
+        failure_count++;
+        last_failure_time = current_time;
         requesting = false;
         return result;
     }
@@ -536,8 +556,12 @@ GeoLocationInfo SystemInfo::GetCountryInfo() {
         cached_result = result;
         cache_initialized = true;
         last_request_time = current_time;
+        // 成功后重置失败计数
+        failure_count = 0;
     } else {
-        ESP_LOGW(TAG, "Incomplete geolocation data received");
+        ESP_LOGW(TAG, "Incomplete geolocation data received, skipping IP check");
+        failure_count++;
+        last_failure_time = current_time;
     }
     
     requesting = false;
