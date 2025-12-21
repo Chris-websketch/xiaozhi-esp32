@@ -1,0 +1,431 @@
+/**index.wxss**/
+/* 极简风格配色 */
+page {
+  --primary-color: #5B8FF9; /* 仿截图蓝色 */
+  --bg-color: #FFFFFF;
+  --input-bg: #F7F8FA;
+  --text-main: #333333;
+  --text-sub: #999999;
+  --border-color: #EEEEEE;
+  
+  background-color: var(--bg-color);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto, 'PingFang SC', sans-serif;
+  color: var(--text-main);
+  box-sizing: border-box;
+}
+
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 导航栏 */
+.nav-bar {
+  width: 100%;
+  background: #fff;
+  z-index: 100;
+  border-bottom: 1rpx solid transparent;
+}
+
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.nav-back {
+  position: absolute;
+  left: 30rpx;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-size: 50rpx;
+  color: var(--text-main);
+  line-height: 1;
+  padding-bottom: 8rpx;
+}
+
+.nav-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* 主内容区域 */
+.main-content {
+  flex: 1;
+  padding: 30rpx 40rpx;
+  box-sizing: border-box;
+}
+
+/* 状态提示 */
+.status-section {
+  margin-bottom: 30rpx;
+}
+
+.status-card {
+  background: #F0F2F5;
+  border-radius: 12rpx;
+  padding: 20rpx 30rpx;
+  display: flex;
+  align-items: center;
+}
+
+.status-indicator {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background-color: var(--primary-color);
+  margin-right: 16rpx;
+}
+
+.status-text {
+  font-size: 26rpx;
+  color: var(--text-main);
+}
+
+/* 设备列表 */
+.section-header {
+  margin-bottom: 20rpx;
+}
+
+.section-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: var(--text-main);
+}
+
+.device-card {
+  background: #fff;
+  border-bottom: 1rpx solid var(--border-color);
+  padding: 30rpx 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.device-card:last-child {
+  border-bottom: none;
+}
+
+.device-info {
+  flex: 1;
+}
+
+.device-name {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--text-main);
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.device-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.rssi-text, .id-text {
+  font-size: 24rpx;
+  color: var(--text-sub);
+}
+
+.connect-btn {
+  font-size: 26rpx;
+  color: var(--primary-color);
+  background: transparent;
+  padding: 10rpx 20rpx;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.connect-btn::after {
+  border: none;
+}
+
+/* 操作区域 */
+.action-section {
+  margin-top: 60rpx;
+}
+
+.primary-btn {
+  width: 100%;
+  height: 96rpx;
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: 16rpx;
+  border: none;
+  font-size: 32rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 10rpx rgba(91, 143, 249, 0.3);
+  margin-bottom: 60rpx;
+}
+
+.primary-btn.scanning {
+  opacity: 0.8;
+}
+
+.tips-section {
+  margin-top: 40rpx;
+}
+
+.tips-title {
+  font-size: 28rpx;
+  font-weight: bold;
+  color: var(--text-main);
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.tips-item {
+  font-size: 26rpx;
+  color: var(--text-sub);
+  margin-bottom: 12rpx;
+  line-height: 1.5;
+}
+
+/* 空状态 */
+.empty-state {
+  padding: 60rpx 0;
+  text-align: center;
+}
+
+.empty-title {
+  font-size: 30rpx;
+  color: var(--text-main);
+  display: block;
+  margin-bottom: 10rpx;
+}
+
+.empty-desc {
+  font-size: 26rpx;
+  color: var(--text-sub);
+}
+
+.bottom-spacer {
+  height: 100rpx;
+}
+
+/* 弹窗样式 */
+.modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+}
+
+.modal-mask.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.bottom-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #fff;
+  border-radius: 24rpx 24rpx 0 0;
+  padding-bottom: 60rpx; /* 安全区 */
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.bottom-sheet.slide-up {
+  transform: translateY(0);
+}
+
+.sheet-header {
+  padding: 30rpx 40rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.sheet-title {
+  font-size: 34rpx;
+  font-weight: bold;
+  color: var(--text-main);
+}
+
+.close-btn {
+  font-size: 40rpx;
+  color: var(--text-sub);
+  padding: 0 20rpx;
+  line-height: 1;
+}
+
+.sheet-content {
+  padding: 40rpx;
+}
+
+.form-group {
+  margin-bottom: 40rpx;
+}
+
+.label {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: var(--text-main);
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--input-bg);
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  height: 96rpx;
+}
+
+.input-icon {
+  font-size: 32rpx;
+  margin-right: 20rpx;
+  color: #C0C4CC;
+}
+
+.modern-input {
+  flex: 1;
+  height: 100%;
+  font-size: 30rpx;
+  color: var(--text-main);
+}
+
+.input-placeholder {
+  color: #C0C4CC;
+}
+
+.scan-text-btn {
+  font-size: 28rpx;
+  color: var(--primary-color);
+  padding: 0 20rpx;
+  font-weight: 500;
+}
+
+.sheet-footer {
+  margin-top: 60rpx;
+}
+
+.submit-btn {
+  width: 100%;
+  height: 96rpx;
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: 16rpx;
+  border: none;
+  font-size: 32rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 10rpx rgba(91, 143, 249, 0.3);
+}
+
+/* WiFi 列表 */
+.wifi-sheet {
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.wifi-list-scroll {
+  flex: 1;
+  height: 600rpx;
+  padding: 0 40rpx;
+  box-sizing: border-box;
+}
+
+.wifi-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx 0;
+  border-bottom: 1rpx solid #F5F5F5;
+}
+
+.wifi-info-left {
+  flex: 1;
+}
+
+.wifi-ssid {
+  font-size: 30rpx;
+  color: var(--text-main);
+  margin-bottom: 6rpx;
+  display: block;
+}
+
+.tag-signal {
+  font-size: 24rpx;
+  color: var(--text-sub);
+}
+
+.wifi-check {
+  color: var(--primary-color);
+  font-weight: bold;
+}
+
+/* 动画 */
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.8);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loader-circle {
+  width: 60rpx;
+  height: 60rpx;
+  border: 6rpx solid #F0F0F0;
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20rpx;
+}
+
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner-small {
+  width: 24rpx;
+  height: 24rpx;
+  border: 4rpx solid #E0E0E0;
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}

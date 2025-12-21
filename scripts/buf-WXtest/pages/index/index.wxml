@@ -1,0 +1,160 @@
+<!--index.wxml-->
+<view class="container">
+  <!-- 顶部导航占位 (Custom Navigation) -->
+  <view class="nav-bar" style="padding-top: {{statusBarHeight}}px">
+    <view class="nav-content">
+      <view class="nav-back" bindtap="onBack" wx:if="{{canGoBack}}">
+        <text class="back-icon">‹</text>
+      </view>
+      <text class="nav-title">voxia蓝牙配网</text>
+      <view class="nav-action"></view>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="main-content" enable-flex>
+    <!-- 顶部状态区域 -->
+    <view class="status-section">
+      <view class="status-card {{status ? 'show' : ''}}" wx:if="{{status}}">
+         <view class="status-indicator {{scanning || connecting ? 'pulsing' : ''}}"></view>
+         <text class="status-text">{{status}}</text>
+      </view>
+    </view>
+
+    <!-- 设备列表区域 -->
+    <view class="device-section">
+      <view class="section-header" wx:if="{{devices.length > 0}}">
+        <text class="section-title">附近的设备</text>
+      </view>
+
+      <view class="device-list">
+        <block wx:for="{{devices}}" wx:key="deviceId">
+          <view class="device-card" 
+                hover-class="card-hover"
+                bindtap="onSelectDevice" 
+                data-id="{{item.deviceId}}">
+            <view class="device-info">
+              <text class="device-name">{{item.name}}</text>
+              <view class="device-meta">
+                <text class="rssi-text">信号强度: {{item.RSSI}} dBm</text>
+                <text class="id-text">ID: {{item.deviceId}}</text>
+              </view>
+            </view>
+            <view class="device-action">
+              <button class="connect-btn">连接</button>
+            </view>
+          </view>
+        </block>
+      </view>
+
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{devices.length === 0 && !scanning}}">
+        <text class="empty-title">未发现设备</text>
+        <text class="empty-desc">请确保设备已进入配网模式且就在附近</text>
+      </view>
+    </view>
+
+    <!-- 操作按钮区域 -->
+    <view class="action-section">
+      <button class="primary-btn {{scanning ? 'scanning' : ''}}" 
+              bindtap="onScan" 
+              disabled="{{connecting}}"
+              hover-class="btn-hover">
+        <text wx:if="{{!scanning}}">扫描设备</text>
+        <text wx:else>扫描中...</text>
+      </button>
+      
+      <view class="tips-section">
+        <text class="tips-title">提示：</text>
+        <view class="tips-item">1. 请确保手机蓝牙已开启</view>
+        <view class="tips-item">2. 设备需处于配网模式</view>
+        <view class="tips-item">3. 保持设备距离手机 15cm 以内</view>
+        <view class="tips-item">4. 仅支持 2.4GHz WiFi 网络</view>
+      </view>
+    </view>
+    
+    <view class="bottom-spacer"></view>
+  </scroll-view>
+
+  <!-- WiFi 配置弹窗 (仿 screenshot 风格) -->
+  <view class="modal-mask {{showWifiModal ? 'visible' : ''}}" bindtap="onCloseModal">
+    <view class="bottom-sheet {{showWifiModal ? 'slide-up' : ''}}" catchtap="preventTap">
+      <view class="sheet-header">
+        <text class="sheet-title">配置网络</text>
+        <view class="close-btn" bindtap="onCloseModal">×</view>
+      </view>
+      
+      <view class="sheet-content">
+        <view class="form-group">
+          <text class="label">WiFi 名称</text>
+          <view class="input-wrapper">
+            <input class="modern-input" 
+                   placeholder="请输入 WiFi 名称" 
+                   placeholder-class="input-placeholder"
+                   value="{{ssid}}"
+                   bindinput="onSsidInput" />
+            <view class="scan-text-btn" bindtap="scanWifi">
+              <text wx:if="{{!wifiScanning}}">选择WiFi</text>
+              <view wx:else class="spinner-small"></view>
+            </view>
+          </view>
+        </view>
+        
+        <view class="form-group">
+          <text class="label">WiFi 密码</text>
+          <view class="input-wrapper">
+            <view class="input-icon">🔒</view>
+            <input class="modern-input with-icon" 
+                   placeholder="请输入 WiFi 密码" 
+                   placeholder-class="input-placeholder"
+                   password="{{true}}"
+                   value="{{password}}"
+                   bindinput="onPasswordInput" />
+          </view>
+        </view>
+
+        <view class="sheet-footer">
+          <button class="submit-btn" bindtap="onConnect" disabled="{{connecting}}">
+            <text>{{connecting ? '配网中...' : '开始配网'}}</text>
+          </button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- WiFi 选择列表弹窗 -->
+  <view class="modal-mask {{showWifiPicker ? 'visible' : ''}}" bindtap="onCloseWifiPicker">
+    <view class="bottom-sheet wifi-sheet {{showWifiPicker ? 'slide-up' : ''}}" catchtap="preventTap">
+      <view class="sheet-header">
+        <text class="sheet-title">选择 WiFi</text>
+        <view class="close-btn" bindtap="onCloseWifiPicker">×</view>
+      </view>
+      
+      <scroll-view scroll-y class="wifi-list-scroll">
+        <block wx:for="{{wifiList}}" wx:key="SSID">
+          <view class="wifi-item" bindtap="onSelectWifi" data-wifi="{{item}}" hover-class="item-hover">
+            <view class="wifi-info-left">
+              <text class="wifi-ssid">{{item.SSID}}</text>
+              <view class="wifi-tags">
+                <text class="tag-signal">信号 {{item.signalStrength}}</text>
+              </view>
+            </view>
+            <view class="wifi-check" wx:if="{{item.SSID === ssid}}">
+              <text>✓</text>
+            </view>
+          </view>
+        </block>
+        <view class="empty-wifi" wx:if="{{wifiList.length === 0}}">
+          <text>未发现 WiFi 网络</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 全屏加载遮罩 -->
+  <view class="loading-overlay" wx:if="{{connecting}}">
+    <view class="loading-card">
+      <view class="loader-circle"></view>
+      <text class="loading-text">{{status}}</text>
+    </view>
+  </view>
+</view>

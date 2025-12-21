@@ -182,14 +182,18 @@ void WifiStation::StartConnect() {
 int8_t WifiStation::GetRssi() {
     // Get station info
     wifi_ap_record_t ap_info;
-    ESP_ERROR_CHECK(esp_wifi_sta_get_ap_info(&ap_info));
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+        return -127; // Return minimum RSSI on error
+    }
     return ap_info.rssi;
 }
 
 uint8_t WifiStation::GetChannel() {
     // Get station info
     wifi_ap_record_t ap_info;
-    ESP_ERROR_CHECK(esp_wifi_sta_get_ap_info(&ap_info));
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+        return 0; // Return 0 on error
+    }
     return ap_info.primary;
 }
 

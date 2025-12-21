@@ -26,6 +26,10 @@
 #include "board.h"
 #endif
 
+#if CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE
+#include "blufi.h"
+#endif
+
 static const char *TAG = "WifiBoard";
 
 WifiBoard::WifiBoard() {
@@ -45,6 +49,19 @@ void WifiBoard::EnterWifiConfigMode() {
     auto& application = Application::GetInstance();
     application.SetDeviceState(kDeviceStateWifiConfiguring);
 
+#if CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE
+    // 使用蓝牙配网 (BluFi) 替代AP配网
+    ESP_LOGI(TAG, "启动BluFi蓝牙配网功能");
+    
+    // 播报配置提示
+    std::string device_name = "Voxia-" + SystemInfo::GetMacAddress().substr(9, 5);
+    std::string hint = "请使用官方后台扫描设备: " + device_name + " 进行配网";
+    application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
+    
+    auto &blufi = Blufi::GetInstance();
+    blufi.init();
+#else
+    // 使用传统AP配网
     auto& wifi_ap = WifiConfigurationAp::GetInstance();
     wifi_ap.SetLanguage(Lang::CODE);
     wifi_ap.SetSsidPrefix("独众AI伴侣");
@@ -106,6 +123,7 @@ void WifiBoard::EnterWifiConfigMode() {
            &application, display, input_channels), 
        5, NULL);
 #endif
+#endif // CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
     
     // Wait forever until reset after configuration
     while (true) {

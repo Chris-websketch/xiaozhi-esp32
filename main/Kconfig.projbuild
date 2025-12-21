@@ -272,6 +272,16 @@ config USE_ACOUSTIC_WIFI_PROVISIONING
     default y
     help
         启用声波配网功能，使用音频信号传输WiFi配置数据。声波配网可作为传统WiFi配网的补充选项。
+
+config USE_ESP_BLUFI_WIFI_PROVISIONING
+    bool "启用蓝牙配网功能 (ESP BluFi)"
+    default n
+    help
+        启用ESP BluFi蓝牙配网功能，使用蓝牙传输WiFi配置数据。
+    select BT_ENABLED
+    select BT_BLE_42_FEATURES_SUPPORTED
+    select BT_BLE_BLUFI_ENABLE
+    select MBEDTLS_DHM_C
         
 endmenu
 menu "Xvsenfeng Personalize"

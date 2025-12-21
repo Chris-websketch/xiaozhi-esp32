@@ -82,7 +82,7 @@ void WifiConfigurationAp::Start()
     
     // Start scan immediately
     esp_wifi_scan_start(nullptr, false);
-    // Setup periodic WiFi scan timer
+    // Setup periodic WiFi scan timer (optional, gracefully handle memory shortage)
     esp_timer_create_args_t timer_args = {
         .callback = [](void* arg) {
             auto* self = static_cast<WifiConfigurationAp*>(arg);
@@ -95,9 +95,14 @@ void WifiConfigurationAp::Start()
         .name = "wifi_scan_timer",
         .skip_unhandled_events = true
     };
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &scan_timer_));
-    // Start scanning every 10 seconds
-    ESP_ERROR_CHECK(esp_timer_start_periodic(scan_timer_, 10000000));
+    esp_err_t ret = esp_timer_create(&timer_args, &scan_timer_);
+    if (ret == ESP_OK) {
+        // Start scanning every 10 seconds
+        ESP_ERROR_CHECK(esp_timer_start_periodic(scan_timer_, 10000000));
+    } else {
+        ESP_LOGW(TAG, "Failed to create scan timer (0x%x), periodic scan disabled", ret);
+        scan_timer_ = nullptr;
+    }
 }
 
 std::string WifiConfigurationAp::GetSsid()

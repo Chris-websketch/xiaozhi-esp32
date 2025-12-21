@@ -209,6 +209,10 @@ if(CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING)
     list(APPEND SOURCES "boards/common/afsk_demod.cc")
 endif()
 
+if(CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING)
+    list(APPEND SOURCES "boards/common/blufi.cpp")
+endif()
+
 # 根据Kconfig选择语言目录
 if(CONFIG_LANGUAGE_ZH_CN)
     set(LANG_DIR "zh-CN")
@@ -240,10 +244,12 @@ if(CONFIG_IDF_TARGET_ESP32)
                              )
 endif()
 
+set(COMPONENT_REQUIRES littlefs esp_app_format app_update spi_flash bt)
+
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
-                    REQUIRES littlefs esp_app_format app_update spi_flash
+                    REQUIRES ${COMPONENT_REQUIRES}
                     WHOLE_ARCHIVE
                     )
 
