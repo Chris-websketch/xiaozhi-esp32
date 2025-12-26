@@ -16,6 +16,7 @@
 #include <tls_transport.h>
 #include <web_socket.h>
 #include <esp_log.h>
+#include <esp_system.h>
 
 #include <wifi_station.h>
 #include <wifi_configuration_ap.h>
@@ -28,6 +29,9 @@
 
 #if CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE
 #include "blufi.h"
+#ifndef BOARD_H
+#include "board.h"
+#endif
 #endif
 
 static const char *TAG = "WifiBoard";
@@ -39,6 +43,11 @@ WifiBoard::WifiBoard() {
         ESP_LOGI(TAG, "force_ap is set to 1, reset to 0");
         settings.SetInt("force_ap", 0);
     }
+    use_acoustic_mode_ = settings.GetInt("use_acoustic") == 1;
+    if (use_acoustic_mode_) {
+        ESP_LOGI(TAG, "use_acoustic is set to 1, reset to 0");
+        settings.SetInt("use_acoustic", 0);
+    }
 }
 
 std::string WifiBoard::GetBoardType() {
@@ -49,14 +58,100 @@ void WifiBoard::EnterWifiConfigMode() {
     auto& application = Application::GetInstance();
     application.SetDeviceState(kDeviceStateWifiConfiguring);
 
-#if CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE
-    // 使用蓝牙配网 (BluFi) 替代AP配网
+#if CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE && CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
+    // 同时支持蓝牙配网和声波配网，根据use_acoustic_mode_标志选择
+    if (use_acoustic_mode_) {
+        // 使用声波配网模式
+        ESP_LOGI(TAG, "启动声波配网功能");
+        
+        std::string hint = "请播放声波配网音频进行配置";
+        application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
+        
+        // 显示声波配网二维码
+        auto display = Board::GetInstance().GetDisplay();
+        if (display && display->width() > 0) {
+            display->ShowQRCode("https://dzyupan.xmduzhong.com/#s/EBF-D13G");
+            ESP_LOGI(TAG, "声波配网二维码已显示");
+        }
+        
+        // 创建boot按钮实例，用于监听双击事件切换配网模式
+        config_button_ = new Button(GPIO_NUM_0);
+        config_button_->OnDoubleClick([]() {
+            ESP_LOGI(TAG, "双击BOOT按钮，切换到蓝牙配网模式");
+            Settings settings("wifi", true);
+            settings.SetInt("use_acoustic", 0);  // 下次使用蓝牙配网
+            settings.SetInt("force_ap", 1);      // 强制进入配网模式
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+        });
+        
+        // 启动声波配网任务
+        auto codec = Board::GetInstance().GetAudioCodec();
+        int input_channels = 1;
+        if (codec) {
+            input_channels = codec->input_channels();
+        }
+        
+        ESP_LOGI(TAG, "启动声波配网任务，音频输入通道数: %d", input_channels);
+        
+        xTaskCreate([](void* param) {
+            auto* params = static_cast<std::tuple<Application*, Display*, size_t>*>(param);
+            auto* app = std::get<0>(*params);
+            auto* display = std::get<1>(*params);
+            auto channels = std::get<2>(*params);
+            
+            ESP_LOGI("AcousticWiFi", "声波配网任务启动");
+            audio_wifi_config::ReceiveWifiCredentialsFromAudio(app, display, channels);
+            
+            delete params;
+            vTaskDelete(NULL);
+        }, "acoustic_wifi_config", 8192, 
+           new std::tuple<Application*, Display*, size_t>(
+               &application, display, input_channels), 
+           5, NULL);
+    } else {
+        // 使用蓝牙配网 (BluFi)
+        ESP_LOGI(TAG, "启动BluFi蓝牙配网功能");
+        
+        std::string device_name = "Voxia-" + SystemInfo::GetMacAddress().substr(9, 5);
+        std::string hint = "请先打开手机蓝牙，扫描屏幕二维码，进入小程序后台配网页面扫描设备: " + device_name + " 进行配网";
+        application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
+        
+        // 显示蓝牙配网二维码
+        auto display = Board::GetInstance().GetDisplay();
+        if (display && display->width() > 0) {
+            display->ShowQRCode("https://xq-download.xmduzhong.com/");
+            ESP_LOGI(TAG, "蓝牙配网二维码已显示");
+        }
+        
+        // 创建boot按钮实例，用于监听双击事件切换配网模式
+        config_button_ = new Button(GPIO_NUM_0);
+        config_button_->OnDoubleClick([]() {
+            ESP_LOGI(TAG, "双击BOOT按钮，切换到声波配网模式");
+            Settings settings("wifi", true);
+            settings.SetInt("use_acoustic", 1);  // 下次使用声波配网
+            settings.SetInt("force_ap", 1);      // 强制进入配网模式
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+        });
+        
+        auto &blufi = Blufi::GetInstance();
+        blufi.init();
+    }
+#elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING && CONFIG_BT_BLE_BLUFI_ENABLE
+    // 仅蓝牙配网可用
     ESP_LOGI(TAG, "启动BluFi蓝牙配网功能");
     
-    // 播报配置提示
     std::string device_name = "Voxia-" + SystemInfo::GetMacAddress().substr(9, 5);
-    std::string hint = "请使用官方后台扫描设备: " + device_name + " 进行配网";
+    std::string hint = "请先打开手机蓝牙，扫描屏幕二维码，进入小程序后台配网页面扫描设备: " + device_name + " 进行配网";
     application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
+    
+    // 显示蓝牙配网二维码
+    auto display = Board::GetInstance().GetDisplay();
+    if (display && display->width() > 0) {
+        display->ShowQRCode("https://xq-download.xmduzhong.com/");
+        ESP_LOGI(TAG, "蓝牙配网二维码已显示");
+    }
     
     auto &blufi = Blufi::GetInstance();
     blufi.init();

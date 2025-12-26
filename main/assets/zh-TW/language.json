@@ -49,7 +49,7 @@
         "MUTED": "已靜音",
         "MAX_VOLUME": "最大音量",
 
-        "SCAN_QR_CODE": "請使用手機相機掃碼",
+        "SCAN_QR_CODE": "---------",
         "DEVICE_REBOOT_SOON": "即將重啟...",
         "CHARGING_DOCK_DISCONNECTED": "充電底座已斷開\n螢幕已旋轉顯示",
         "CONNECT_CHARGING_DOCK": "請連接官方充電底座",

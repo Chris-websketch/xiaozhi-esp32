@@ -2,10 +2,13 @@
 #define WIFI_BOARD_H
 
 #include "board.h"
+#include "button.h"
 
 class WifiBoard : public Board {
 protected:
     bool wifi_config_mode_ = false;
+    bool use_acoustic_mode_ = false;
+    Button* config_button_ = nullptr;
 
     WifiBoard();
     void EnterWifiConfigMode();
