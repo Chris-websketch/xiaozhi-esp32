@@ -141,6 +141,22 @@ void Display::ShowCenterNotification(const std::string &notification, int durati
     ShowCenterNotification(notification.c_str(), duration_ms);
 }
 
+void Display::HideCenterNotification() {
+    DisplayLockGuard lock(this);
+    if (center_notification_bg_ != nullptr) {
+        lv_obj_add_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
+    }
+    esp_timer_stop(center_notification_timer_);
+}
+
+bool Display::IsCenterNotificationVisible() {
+    DisplayLockGuard lock(this);
+    if (center_notification_bg_ == nullptr) {
+        return false;
+    }
+    return !lv_obj_has_flag(center_notification_bg_, LV_OBJ_FLAG_HIDDEN);
+}
+
 void Display::ShowCenterNotification(const char* notification, int duration_ms) {
     ESP_LOGI(TAG, "ShowCenterNotification called: %s, duration: %dms", notification, duration_ms);
     DisplayLockGuard lock(this);

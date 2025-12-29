@@ -13,6 +13,7 @@
 #include "esp_wifi.h"
 #include "esp_mac.h"
 #include "esp_bt.h"
+#include "esp_netif.h"
 // WifiStation is already included below
 // Adapted for WifiStation instead of WifiManager
 
@@ -541,13 +542,8 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *para
                 esp_blufi_adv_start();
             } else {
                 esp_blufi_adv_stop();
-                if (!m_deinited) {
-                    // Deinit BLE stack after provisioning completes to free resources.
-                    xTaskCreate([](void *ctx) {
-                        static_cast<Blufi *>(ctx)->deinit();
-                        vTaskDelete(nullptr);
-                    }, "blufi_deinit", 4096, this, 5, nullptr);
-                }
+                // Don't deinit here as it causes crashes and we are about to restart anyway
+                ESP_LOGI(BLUFI_TAG, "Provisioned, stopping ADV and waiting for restart");
             }
             break;
         case ESP_BLUFI_EVENT_SET_WIFI_OPMODE: {
@@ -558,61 +554,44 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *para
         case ESP_BLUFI_EVENT_REQ_CONNECT_TO_AP: {
             ESP_LOGI(BLUFI_TAG, "BLUFI request wifi connect to AP");
             std::string ssid(reinterpret_cast<const char *>(m_sta_config.sta.ssid));
-            std::string password(reinterpret_cast<const char *>(m_sta_config.sta.password));
-
-            // Save credentials through SsidManager
-            SsidManager::GetInstance().AddSsid(ssid, password);
+            
+            // Note: Don't save to SsidManager yet. Wait for successful connection.
 
             // Track SSID for BLUFI status reporting.
-            m_sta_ssid_len = static_cast<int>(std::min(ssid.size(), sizeof(m_sta_ssid)));
+            size_t ssid_len = ssid.size();
+            if (ssid_len > sizeof(m_sta_ssid)) {
+                ssid_len = sizeof(m_sta_ssid);
+            }
+            m_sta_ssid_len = (int)ssid_len;
             memcpy(m_sta_ssid, ssid.c_str(), m_sta_ssid_len);
             memset(m_sta_bssid, 0, sizeof(m_sta_bssid));
             m_sta_connected = false;
             m_sta_got_ip = false;
             m_sta_is_connecting = true;
+            m_connect_retry_count = 0;
             m_sta_conn_info = {}; // Reset connection info
             m_sta_conn_info.sta_ssid = m_sta_ssid;
             m_sta_conn_info.sta_ssid_len = m_sta_ssid_len;
-            m_provisioned = true;
+            // m_provisioned = true; // Don't set provisioned yet, wait for IP
 
-            // 先通知小程序配置已保存，然后关闭蓝牙再启动WiFi（避免内存不足）
-            wifi_mode_t mode = GetWifiModeWithFallback();
-            esp_blufi_extra_info_t info = {};
-            info.sta_ssid = m_sta_ssid;
-            info.sta_ssid_len = m_sta_ssid_len;
-            esp_blufi_send_wifi_conn_report(mode, ESP_BLUFI_STA_CONN_SUCCESS, 0, &info);
-            ESP_LOGI(BLUFI_TAG, "BluFi: config saved, notified client, will restart to connect WiFi...");
-
-            // 延迟后重启设备，重启后会自动连接WiFi
-            xTaskCreate([](void *ctx) {
-                vTaskDelay(pdMS_TO_TICKS(500));  // 等待通知发送完成
-                ESP_LOGI(BLUFI_TAG, "BluFi: config saved, restarting to connect WiFi...");
-                vTaskDelay(pdMS_TO_TICKS(500));
-                esp_restart();
-            }, "blufi_restart", 2048, nullptr, 5, nullptr);
+            ESP_LOGI(BLUFI_TAG, "BluFi: Verifying connection to %s...", ssid.c_str());
+            _connect_to_ap();
             break;
         }
         case ESP_BLUFI_EVENT_REQ_DISCONNECT_FROM_AP:
             ESP_LOGI(BLUFI_TAG, "BLUFI request wifi disconnect from AP");
-            WifiStation::GetInstance().Stop();
+            esp_wifi_disconnect(); // Disconnect using esp_wifi directly
             m_sta_is_connecting = false;
             m_sta_connected = false;
             m_sta_got_ip = false;
             break;
         case ESP_BLUFI_EVENT_GET_WIFI_STATUS: {
-            auto &wifi = WifiStation::GetInstance();
+            // Note: We use our local state instead of WifiStation since we are managing connection manually here
             wifi_mode_t mode = GetWifiModeWithFallback();
             const int softap_conn_num = _get_softap_conn_num();
 
-            if (wifi.IsConnected()) {
+            if (m_sta_got_ip) { // Use got_ip as "connected" for status
                 m_sta_connected = true;
-                m_sta_got_ip = true;
-
-                auto current_ssid = wifi.GetSsid();
-                if (!current_ssid.empty()) {
-                    m_sta_ssid_len = static_cast<int>(std::min(current_ssid.size(), sizeof(m_sta_ssid)));
-                    memcpy(m_sta_ssid, current_ssid.c_str(), m_sta_ssid_len);
-                }
 
                 esp_blufi_extra_info_t info;
                 memset(&info, 0, sizeof(esp_blufi_extra_info_t));
@@ -652,6 +631,14 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *para
             ESP_LOGI(BLUFI_TAG, "BLUFI get wifi list");
             // 确保WiFi已初始化（STA模式用于扫描）
             wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+            // 优化内存配置，避免 BLUFI 配网时内存不足
+            cfg.static_rx_buf_num = 4;
+            cfg.dynamic_rx_buf_num = 8;
+            cfg.static_tx_buf_num = 4;
+            cfg.cache_tx_buf_num = 16;
+            cfg.ampdu_rx_enable = 0;
+            cfg.ampdu_tx_enable = 0;
+            
             esp_err_t err = esp_wifi_init(&cfg);
             if (err != ESP_OK && err != ESP_ERR_WIFI_INIT_STATE) {
                 ESP_LOGE(BLUFI_TAG, "WiFi init failed: %s", esp_err_to_name(err));
@@ -661,12 +648,12 @@ void Blufi::_handle_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *para
             esp_wifi_set_mode(WIFI_MODE_STA);
             esp_wifi_start();
             
-            // 扫描周围WiFi并发送给小程序
+            // 扫描周围WiFi并发送给小程序 - 使用更快的扫描配置
             wifi_scan_config_t scan_config = {};
             scan_config.show_hidden = false;
             scan_config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
-            scan_config.scan_time.active.min = 100;
-            scan_config.scan_time.active.max = 300;
+            scan_config.scan_time.active.min = 50;
+            scan_config.scan_time.active.max = 150;
             
             err = esp_wifi_scan_start(&scan_config, true);
             if (err != ESP_OK) {
@@ -747,4 +734,137 @@ int Blufi::_decrypt_func_trampoline(uint8_t iv8, uint8_t *crypt_data, int crypt_
 
 uint16_t Blufi::_checksum_func_trampoline(uint8_t iv8, uint8_t *data, int len) {
     return _crc_checksum(iv8, data, len);
+}
+
+void Blufi::_wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+    Blufi& blufi = Blufi::GetInstance();
+    
+    if (event_id == WIFI_EVENT_STA_START) {
+        // Don't call esp_wifi_connect() here, it's already called in _connect_to_ap()
+        ESP_LOGI(BLUFI_TAG, "WiFi STA started");
+    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t* disconn = (wifi_event_sta_disconnected_t*)event_data;
+        uint8_t reason = disconn->reason;
+        
+        ESP_LOGI(BLUFI_TAG, "WiFi disconnected, reason: %d", reason);
+        
+        if (blufi.m_sta_is_connecting) {
+            // Check for fatal errors that shouldn't be retried
+            bool fatal_error = (reason == WIFI_REASON_AUTH_FAIL ||
+                               reason == WIFI_REASON_NO_AP_FOUND ||
+                               reason == WIFI_REASON_ASSOC_FAIL ||
+                               reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+                               reason == WIFI_REASON_HANDSHAKE_TIMEOUT);
+            
+            if (fatal_error) {
+                ESP_LOGW(BLUFI_TAG, "WiFi connection fatal error (reason=%d), not retrying", reason);
+                blufi.m_sta_connected = false;
+                blufi.m_sta_is_connecting = false;
+                
+                // Notify failure immediately
+                esp_blufi_extra_info_t info = {};
+                info.sta_ssid = blufi.m_sta_ssid;
+                info.sta_ssid_len = blufi.m_sta_ssid_len;
+                esp_blufi_send_wifi_conn_report(WIFI_MODE_STA, ESP_BLUFI_STA_CONN_FAIL, 0, &info);
+            } else if (blufi.m_connect_retry_count < blufi.kMaxRetryCount) {
+                blufi.m_connect_retry_count++;
+                ESP_LOGI(BLUFI_TAG, "WiFi disconnected, retrying... (%d/%d)", blufi.m_connect_retry_count, blufi.kMaxRetryCount);
+                esp_wifi_connect();
+            } else {
+                ESP_LOGI(BLUFI_TAG, "WiFi connection failed after retries");
+                blufi.m_sta_connected = false;
+                blufi.m_sta_is_connecting = false;
+                
+                // Notify failure
+                esp_blufi_extra_info_t info = {};
+                info.sta_ssid = blufi.m_sta_ssid;
+                info.sta_ssid_len = blufi.m_sta_ssid_len;
+                esp_blufi_send_wifi_conn_report(WIFI_MODE_STA, ESP_BLUFI_STA_CONN_FAIL, 0, &info);
+            }
+        }
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        blufi.m_sta_connected = true;
+        ESP_LOGI(BLUFI_TAG, "WiFi STA connected to AP");
+    }
+}
+
+void Blufi::_ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+    Blufi& blufi = Blufi::GetInstance();
+    if (event_id == IP_EVENT_STA_GOT_IP && blufi.m_sta_is_connecting) {
+        ESP_LOGI(BLUFI_TAG, "WiFi connected and got IP");
+        blufi.m_sta_got_ip = true;
+        blufi.m_sta_is_connecting = false;
+        blufi.m_provisioned = true; // Mark as provisioned now that we have IP
+        
+        // Notify Success
+        esp_blufi_extra_info_t info = {};
+        info.sta_ssid = blufi.m_sta_ssid;
+        info.sta_ssid_len = blufi.m_sta_ssid_len;
+        esp_blufi_send_wifi_conn_report(WIFI_MODE_STA, ESP_BLUFI_STA_CONN_SUCCESS, 0, &info);
+        
+        // Save Credentials
+        std::string ssid(reinterpret_cast<const char *>(blufi.m_sta_config.sta.ssid));
+        std::string password(reinterpret_cast<const char *>(blufi.m_sta_config.sta.password));
+        SsidManager::GetInstance().AddSsid(ssid, password);
+        
+        ESP_LOGI(BLUFI_TAG, "BluFi: config verified and saved, restarting...");
+        
+        // Restart
+        xTaskCreate([](void *ctx) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            esp_restart();
+        }, "blufi_restart", 2048, nullptr, 5, nullptr);
+    }
+}
+
+void Blufi::_connect_to_ap() {
+    esp_netif_init();
+    
+    if (m_netif_sta == nullptr) {
+        m_netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (m_netif_sta == nullptr) {
+             m_netif_sta = esp_netif_create_default_wifi_sta();
+        }
+    }
+    
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    // Use memory optimized config
+    cfg.static_rx_buf_num = 4;
+    cfg.dynamic_rx_buf_num = 8;
+    cfg.static_tx_buf_num = 4;
+    cfg.cache_tx_buf_num = 16;
+    cfg.ampdu_rx_enable = 0;
+    cfg.ampdu_tx_enable = 0;
+
+    esp_err_t err = esp_wifi_init(&cfg);
+    if (err != ESP_OK && err != ESP_ERR_WIFI_INIT_STATE) {
+        ESP_LOGE(BLUFI_TAG, "WiFi init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    if (m_wifi_event_handler == nullptr) {
+        esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &_wifi_event_handler, nullptr, &m_wifi_event_handler);
+    }
+    if (m_ip_event_handler == nullptr) {
+        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &_ip_event_handler, nullptr, &m_ip_event_handler);
+    }
+
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &m_sta_config);
+    esp_wifi_start();
+    
+    // Small delay to ensure WiFi is fully started before connecting
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    esp_err_t ret = esp_wifi_connect();
+    if (ret != ESP_OK) {
+        ESP_LOGE(BLUFI_TAG, "esp_wifi_connect failed: %s", esp_err_to_name(ret));
+        m_sta_is_connecting = false;
+        
+        // Notify failure
+        esp_blufi_extra_info_t info = {};
+        info.sta_ssid = m_sta_ssid;
+        info.sta_ssid_len = m_sta_ssid_len;
+        esp_blufi_send_wifi_conn_report(WIFI_MODE_STA, ESP_BLUFI_STA_CONN_FAIL, 0, &info);
+    }
 }

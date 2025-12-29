@@ -79,6 +79,7 @@ public:
     void SetDeviceState(DeviceState state);
     void Alert(const char* status, const char* message, const char* emotion = "", const std::string_view& sound = "");
     void DismissAlert();
+    void DismissNotification();  // 关闭中央通知弹窗
     void AbortSpeaking(AbortReason reason);
     void ToggleChatState();
     void StartListening(bool skip_wake_message = false);

@@ -367,6 +367,11 @@ void Application::DismissAlert() {
     }
 }
 
+void Application::DismissNotification() {
+    auto display = Board::GetInstance().GetDisplay();
+    display->HideCenterNotification();
+}
+
 void Application::PlaySound(const std::string_view& sound) {
     // The assets are encoded at 16000Hz, 60ms frame duration
     SetDecodeSampleRate(16000, 60);
@@ -902,6 +907,13 @@ void Application::OnMqttNotification(const cJSON* root) {
     if (strcmp(type->valuestring, "notify") == 0) {
         auto title = cJSON_GetObjectItem(root, "title");
         auto body = cJSON_GetObjectItem(root, "body");
+        auto duration = cJSON_GetObjectItem(root, "duration_ms");
+        int duration_ms = 60000;  // 默认60秒
+        if (duration && cJSON_IsNumber(duration)) {
+            duration_ms = duration->valueint;
+            if (duration_ms < 1000) duration_ms = 1000;  // 最少1秒
+            if (duration_ms > 300000) duration_ms = 300000;  // 最多5分钟
+        }
         std::string message;
         if (title && cJSON_IsString(title)) {
             message += title->valuestring;
@@ -912,7 +924,7 @@ void Application::OnMqttNotification(const cJSON* root) {
         }
         if (!message.empty()) {
             auto display = Board::GetInstance().GetDisplay();
-            display->ShowCenterNotification(message.c_str(), 10000);
+            display->ShowCenterNotification(message.c_str(), duration_ms);
             if (notifier_) {
                 cJSON* ack = cJSON_CreateObject();
                 cJSON_AddStringToObject(ack, "type", "ack");

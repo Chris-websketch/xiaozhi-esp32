@@ -9,6 +9,7 @@
 #include "esp_err.h"
 #include "esp_blufi_api.h"
 #include "esp_wifi_types.h"
+#include "esp_netif.h"
 
 
 class Blufi {
@@ -121,6 +122,17 @@ private:
     int m_sta_ssid_len;
     bool m_sta_is_connecting;
     esp_blufi_extra_info_t m_sta_conn_info{};
+    uint8_t m_connect_retry_count{0};
+    static const uint8_t kMaxRetryCount = 3;
+
+    // WiFi Event Handlers for connection verification
+    esp_event_handler_instance_t m_wifi_event_handler{nullptr};
+    esp_event_handler_instance_t m_ip_event_handler{nullptr};
+    esp_netif_t* m_netif_sta{nullptr};
+
+    static void _wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+    static void _ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+    void _connect_to_ap();
 };
 
 #endif // CONFIG_BT_BLE_BLUFI_ENABLE

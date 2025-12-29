@@ -1737,6 +1737,12 @@ private:
                 ESP_LOGI(TAG, "按住对话模式下，单击事件被忽略");
                 return;
             }
+            // 如果有通知正在显示，点击关闭通知
+            if (display_ && display_->IsCenterNotificationVisible()) {
+                ESP_LOGI(TAG, "关闭中央通知弹窗");
+                Application::GetInstance().DismissNotification();
+                return;
+            }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
                 ResetWifiConfiguration();  
